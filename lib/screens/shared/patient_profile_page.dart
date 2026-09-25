@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../core/theme.dart';
-import '../models/models.dart';
-import '../widgets/common.dart';
-import '../widgets/patient_summary.dart';
+import '../../core/theme.dart';
+import '../../models/models.dart';
+import '../../widgets/common.dart';
+import '../../widgets/patient_summary.dart';
 import 'ticket_form_page.dart';
 
 class PatientProfilePage extends StatelessWidget {

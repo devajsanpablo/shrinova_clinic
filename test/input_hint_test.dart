@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rmc_clinic_health/app.dart';
 import 'package:rmc_clinic_health/core/theme.dart';
 
+import 'maintenance_test.dart' show FakeMaintenance;
+
 void main() {
   bool placeholderVisible(WidgetTester tester, String text) => tester
       .widgetList<AnimatedOpacity>(
@@ -70,7 +72,9 @@ void main() {
   testWidgets('login placeholders stay on tap and disappear when typing', (
     tester,
   ) async {
-    await tester.pumpWidget(const ClinicApp());
+    final maintenance = FakeMaintenance()..ready = true;
+    addTearDown(maintenance.dispose);
+    await tester.pumpWidget(ClinicApp(maintenance: maintenance));
     await tester.pumpAndSettle();
     final email = find.byWidgetPredicate(
       (widget) =>

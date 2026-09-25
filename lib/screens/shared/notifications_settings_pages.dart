@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../core/theme.dart';
-import '../models/models.dart';
-import '../widgets/common.dart';
+import '../../core/theme.dart';
+import '../../models/models.dart';
+import '../../widgets/common.dart';
+import 'user_profile_card.dart';
 
 class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
@@ -119,37 +120,10 @@ class _SettingsPageState extends State<SettingsPage> {
           children: [
             const PageHeading(
               title: 'Profile & settings',
-              subtitle: 'Manage your demo workspace preferences',
+              subtitle: 'Your account details and workspace preferences',
             ),
             const SizedBox(height: 20),
-            SectionCard(
-              title: 'Profile',
-              child: Row(
-                children: [
-                  const PatientAvatar(initials: 'AR', radius: 31),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.role == UserRole.staff
-                              ? 'Angela Ramos'
-                              : 'Dr. Adrian Reyes',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        Text(
-                          widget.role == UserRole.staff
-                              ? 'Clinic Staff • RMC-STAFF-014'
-                              : 'Internal Medicine • PRC-0000000',
-                        ),
-                        const Text('Shrinovva Homeophatic'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            UserProfileCard(role: widget.role),
             if (MediaQuery.sizeOf(context).width < 700) ...[
               const SizedBox(height: 15),
               SizedBox(

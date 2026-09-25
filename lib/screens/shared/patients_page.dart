@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../core/app_state.dart';
-import '../core/theme.dart';
-import '../widgets/common.dart';
+import '../../core/app_state.dart';
+import '../../core/theme.dart';
+import '../../widgets/common.dart';
 import 'patient_profile_page.dart';
 import 'register_patient_page.dart';
 

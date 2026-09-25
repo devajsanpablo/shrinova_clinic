@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
-import '../core/app_state.dart';
-import '../core/theme.dart';
-import '../data/mock_data.dart';
-import '../models/models.dart';
-import '../widgets/common.dart';
-import '../widgets/intake_form_section.dart';
-import '../widgets/symptom_selector.dart';
+import '../../core/app_state.dart';
+import '../../core/theme.dart';
+import '../../data/mock_data.dart';
+import '../../models/models.dart';
+import '../../widgets/common.dart';
+import '../../widgets/intake_form_section.dart';
+import '../../widgets/symptom_selector.dart';
 
 class TicketFormPage extends StatefulWidget {
   const TicketFormPage({
@@ -33,6 +33,8 @@ class _TicketFormPageState extends State<TicketFormPage> {
   final heart = TextEditingController();
   final temp = TextEditingController();
   final oxygen = TextEditingController();
+  bool _saving = false;
+  Ticket? _pendingTicket;
   Patient? patient;
   String doctor = doctors.first;
   Priority priority = Priority.normal;
@@ -93,53 +95,60 @@ class _TicketFormPageState extends State<TicketFormPage> {
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1180),
-              child: Form(
-                key: _formKey,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const PageHeading(
-                      title: 'New consultation',
-                      subtitle: 'Start with the patient, then add the details of their visit.',
-                    ),
-                    const SizedBox(height: 20),
-                    _progress(),
-                    const SizedBox(height: 24),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final main = Column(
-                          children: [
-                            _patientSection(state),
-                            const SizedBox(height: 20),
-                            _visitSection(),
-                            const SizedBox(height: 20),
-                            _symptomsSection(),
-                          ],
-                        );
-                        final side = Column(
-                          children: [
-                            _vitalsSection(),
-                            const SizedBox(height: 20),
-                            _assignmentSection(),
-                          ],
-                        );
-                        if (constraints.maxWidth < 960) {
-                          return Column(
-                            children: [main, const SizedBox(height: 20), side],
+              child: AbsorbPointer(
+                absorbing: _saving || _pendingTicket != null,
+                child: Form(
+                  key: _formKey,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const PageHeading(
+                        title: 'New consultation',
+                        subtitle: 'Start with the patient, then add the details of their visit.',
+                      ),
+                      const SizedBox(height: 20),
+                      _progress(),
+                      const SizedBox(height: 24),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final main = Column(
+                            children: [
+                              _patientSection(state),
+                              const SizedBox(height: 20),
+                              _visitSection(),
+                              const SizedBox(height: 20),
+                              _symptomsSection(),
+                            ],
                           );
-                        }
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(child: main),
-                            const SizedBox(width: 24),
-                            SizedBox(width: 350, child: side),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
+                          final side = Column(
+                            children: [
+                              _vitalsSection(),
+                              const SizedBox(height: 20),
+                              _assignmentSection(),
+                            ],
+                          );
+                          if (constraints.maxWidth < 960) {
+                            return Column(
+                              children: [
+                                main,
+                                const SizedBox(height: 20),
+                                side,
+                              ],
+                            );
+                          }
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: main),
+                              const SizedBox(width: 24),
+                              SizedBox(width: 350, child: side),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -510,13 +519,23 @@ class _TicketFormPageState extends State<TicketFormPage> {
               builder: (_, constraints) {
                 final buttons = [
                   OutlinedButton(
-                    onPressed: () => _submit(state, TicketStatus.draft),
+                    onPressed: _saving
+                        ? null
+                        : () => _submit(state, TicketStatus.draft),
                     child: const Text('Save draft'),
                   ),
                   FilledButton.icon(
-                    onPressed: () => _submit(state, TicketStatus.sent),
+                    onPressed: _saving
+                        ? null
+                        : () => _submit(state, TicketStatus.sent),
                     icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                    label: const Text('Review & send'),
+                    label: Text(
+                      _saving
+                          ? 'Saving ticket...'
+                          : _pendingTicket != null
+                          ? 'Retry save'
+                          : 'Review & send',
+                    ),
                   ),
                 ];
                 if (constraints.maxWidth < 600) {
@@ -556,6 +575,11 @@ class _TicketFormPageState extends State<TicketFormPage> {
   );
 
   Future<void> _submit(AppState state, TicketStatus status) async {
+    if (_saving) return;
+    if (_pendingTicket != null) {
+      await _saveTicket(state, _pendingTicket!);
+      return;
+    }
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) {
       for (final key in <GlobalKey<FormFieldState>>[
@@ -613,7 +637,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
                   _reviewDetail('Staff notes', notes.text.trim()),
                 const SizedBox(height: 8),
                 Text(
-                  draft ? 'This draft will be saved to the local queue.' : 'This ticket will be available in the doctor workspace.',
+                  draft ? 'This draft will be saved to the clinic queue.' : 'This ticket will be available in the doctor workspace.',
                   style: const TextStyle(fontSize: 12),
                 ),
                 const SizedBox(height: 6),
@@ -638,34 +662,63 @@ class _TicketFormPageState extends State<TicketFormPage> {
       ),
     );
     if (!mounted || confirmed != true) return;
-    final ticket = Ticket(
-      id: 'TK-260917-${state.tickets.length + 27}',
-      queueNumber:
-          'Q-${(state.tickets.length + 27).toString().padLeft(3, '0')}',
-      patientId: patient!.id,
-      complaint: complaint.text.trim(),
-      reason: reason.text.trim(),
-      symptoms: selected.toList(),
-      bloodPressure: bp.text.trim(),
-      heartRate: heart.text.trim(),
-      temperature: temp.text.trim(),
-      oxygen: oxygen.text.trim(),
-      doctor: doctor,
-      priority: priority,
-      notes: notes.text.trim(),
-      createdAt: DateTime.now(),
-      status: status,
-    );
-    final messenger = ScaffoldMessenger.of(context);
-    state.addTicket(ticket);
-    Navigator.pop(context);
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          '${ticket.queueNumber} ${draft ? 'saved' : 'sent to $doctor'} successfully.',
+    try {
+      final id = state.ticketDatabase.newTicketId();
+      final ticket = Ticket(
+        id: id,
+        queueNumber: 'Q-$id',
+        patientId: patient!.id,
+        complaint: complaint.text.trim(),
+        reason: reason.text.trim(),
+        symptoms: selected.toList(),
+        bloodPressure: bp.text.trim(),
+        heartRate: heart.text.trim(),
+        temperature: temp.text.trim(),
+        oxygen: oxygen.text.trim(),
+        doctor: doctor,
+        priority: priority,
+        notes: notes.text.trim(),
+        createdAt: DateTime.now(),
+        status: status,
+      );
+      _pendingTicket = ticket;
+      await _saveTicket(state, ticket);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not prepare ticket. Please retry.'),
         ),
-      ),
-    );
+      );
+    }
+  }
+
+  Future<void> _saveTicket(AppState state, Ticket ticket) async {
+    setState(() => _saving = true);
+    try {
+      final messenger = ScaffoldMessenger.of(context);
+      await state.addTicket(ticket);
+      if (!mounted) return;
+      Navigator.pop(context);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${ticket.queueNumber} ${ticket.status == TicketStatus.draft ? 'saved' : 'sent to ${ticket.doctor}'} successfully.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not save the ticket. Check your connection and retry. Your original submission will be retried.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   String _measurement(TextEditingController controller, String unit) =>

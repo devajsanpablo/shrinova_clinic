@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-import '../core/theme.dart';
-import '../widgets/clinic_art.dart';
-import '../widgets/motion.dart';
-import '../models/models.dart';
+import '../../auth/staff/staff_auth_service.dart';
+import '../../core/theme.dart';
+import '../../core/app_state.dart';
+import '../../widgets/clinic_art.dart';
+import '../../widgets/motion.dart';
+import '../../models/models.dart';
 import 'app_shell.dart';
 
 const _teal = Color(0xFF087F73);
@@ -33,29 +37,97 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  void signIn() {
+  Future<void> signIn() async {
     if (signingIn) return;
+
+    final enteredEmail = email.text.trim();
+    final enteredPassword = password.text;
+    final selectedRole = role;
+    if (enteredEmail.isEmpty || enteredPassword.isEmpty) {
+      _showMessage('Enter your email and password to continue.');
+      return;
+    }
+
     setState(() => signingIn = true);
     FocusScope.of(context).unfocus();
-    final selectedRole = role;
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder<void>(
-        transitionDuration: MediaQuery.disableAnimationsOf(context)
-            ? Duration.zero
-            : const Duration(milliseconds: 420),
-        pageBuilder: (_, animation, secondaryAnimation) =>
-            AppShell(role: selectedRole),
-        transitionsBuilder: (_, animation, secondaryAnimation, child) =>
-            FadeTransition(
-              opacity: CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOut,
+    try {
+      final staffAuth = await StaffAuthService.initialize();
+      await staffAuth.signIn(
+        email: enteredEmail,
+        password: enteredPassword,
+        role: selectedRole,
+      );
+      if (!mounted) return;
+      await AppStateScope.of(context).loadClinicData();
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder<void>(
+          transitionDuration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 420),
+          pageBuilder: (_, animation, secondaryAnimation) =>
+              AppShell(role: selectedRole),
+          transitionsBuilder: (_, animation, secondaryAnimation, child) =>
+              FadeTransition(
+                opacity: CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOut,
+                ),
+                child: child,
               ),
-              child: child,
-            ),
-      ),
-    );
+        ),
+      );
+    } on FirebaseAuthException catch (error) {
+      _showMessage(_authErrorMessage(error.code));
+    } on FirebaseException catch (error) {
+      _showMessage(switch (error.code) {
+        'permission-denied' => 'Patient record access was denied. Contact your clinic administrator to check your account access.',
+        'app-not-found' || 'not-initialized' =>
+          'Firebase setup is missing. Contact your app administrator.',
+        _ => 'Unable to connect to Firebase (${error.code}). Please try again.',
+      });
+    } on PlatformException catch (error) {
+      // Android reports missing generated Firebase resources as a platform error.
+      final missingOptions =
+          error.message?.contains(
+            'Failed to load FirebaseOptions from resource',
+          ) ??
+          false;
+      _showMessage(
+        missingOptions
+            ? 'Firebase setup is missing. Contact your app administrator.'
+            : 'Unable to start sign-in (${error.code}). Restart the app and try again.',
+      );
+    } catch (_) {
+      _showMessage('Unable to sign in right now. Please try again.');
+    } finally {
+      if (mounted) setState(() => signingIn = false);
+    }
   }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _authErrorMessage(String code) => switch (code) {
+    'invalid-email' => 'Enter a valid email address.',
+    'workspace-access-denied' => 'This account does not have access to the selected workspace. Choose the correct role or contact your clinic administrator.',
+    'invalid-credential' ||
+    'user-not-found' ||
+    'wrong-password' => 'The email or password is incorrect.',
+    'user-disabled' => 'This account has been disabled.',
+    'too-many-requests' => 'Too many attempts. Try again later.',
+    'network-request-failed' =>
+      'Cannot connect. Check your internet connection and try again.',
+    'operation-not-allowed' || 'configuration-not-found' =>
+      'Email/password sign-in is not enabled. Contact your app administrator.',
+    'invalid-api-key' || 'app-not-authorized' =>
+      'Firebase configuration is invalid. Contact your app administrator.',
+    _ => 'Unable to sign in ($code). Please try again.',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -292,10 +364,10 @@ class _LoginPageState extends State<LoginPage> {
                                       context: context,
                                       builder: (context) => AlertDialog(
                                         title: const Text(
-                                          'You can explore freely',
+                                          'Clinic account required',
                                         ),
                                         content: const Text(
-                                          'This clinic demo does not require a real account. Leave the fields blank or enter fictional credentials, then sign in.',
+                                          'Use your clinic email and password, then select the workspace assigned to your account. Contact your clinic administrator if you need access.',
                                         ),
                                         actions: [
                                           TextButton(
@@ -363,7 +435,7 @@ class _LoginPageState extends State<LoginPage> {
                                     SizedBox(width: 9),
                                     Expanded(
                                       child: Text(
-                                        'Demo workspace · Use any credentials.\nAll patient information is fictional.',
+                                        'Staff and doctor access.\nPatient records are saved to the clinic database.',
                                         style: TextStyle(
                                           fontSize: 11,
                                           height: 1.65,

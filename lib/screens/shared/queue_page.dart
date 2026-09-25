@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../core/app_state.dart';
-import '../core/theme.dart';
-import '../models/models.dart';
-import '../widgets/common.dart';
-import 'consultation_page.dart';
+import '../../core/app_state.dart';
+import '../../core/theme.dart';
+import '../../models/models.dart';
+import '../../widgets/common.dart';
+import '../doctor/consultation_page.dart';
 import 'patient_profile_page.dart';
 
 class QueuePage extends StatefulWidget {
@@ -107,15 +107,26 @@ class _QueuePageState extends State<QueuePage> {
                       void view() => Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              widget.role == UserRole.doctor && !finished
+                          builder: (_) => widget.role == UserRole.doctor
                               ? ConsultationPage(ticket: t)
                               : PatientProfilePage(patient: p),
                         ),
                       );
-                      void start() {
-                        state.setStatus(t, TicketStatus.inConsultation);
-                        view();
+                      Future<void> start() async {
+                        try {
+                          await state.setStatus(t, TicketStatus.inConsultation);
+                          if (!context.mounted) return;
+                          view();
+                        } catch (_) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Could not start consultation. Please retry.',
+                              ),
+                            ),
+                          );
+                        }
                       }
 
                       return Card(

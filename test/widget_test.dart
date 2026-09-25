@@ -1,9 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rmc_clinic_health/app.dart';
 
+import 'maintenance_test.dart' show FakeMaintenance;
+
 void main() {
   testWidgets('shows role-based clinic login', (tester) async {
-    await tester.pumpWidget(const ClinicApp());
+    final maintenance = FakeMaintenance()..ready = true;
+    addTearDown(maintenance.dispose);
+    await tester.pumpWidget(ClinicApp(maintenance: maintenance));
     expect(find.text('Opening your workspace…'), findsOneWidget);
     expect(find.text('Welcome back'), findsNothing);
     await tester.pumpAndSettle(const Duration(milliseconds: 100));

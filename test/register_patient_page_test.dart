@@ -1,3 +1,6 @@
+import 'support/ticket_database_fake.dart';
+import 'support/patient_database_fake.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -5,9 +8,9 @@ import '../tool/load_app_fonts.dart';
 
 import 'package:rmc_clinic_health/core/app_state.dart';
 import 'package:rmc_clinic_health/core/theme.dart';
-import 'package:rmc_clinic_health/screens/register_patient_page.dart';
+import 'package:rmc_clinic_health/screens/shared/register_patient_page.dart';
 import 'package:rmc_clinic_health/models/models.dart';
-import 'package:rmc_clinic_health/screens/ticket_form_page.dart';
+import 'package:rmc_clinic_health/screens/shared/ticket_form_page.dart';
 
 void main() {
   Future<void> openForm(WidgetTester tester, AppState state) async {
@@ -46,7 +49,7 @@ void main() {
   testWidgets('required details and invalid phone block registration', (
     tester,
   ) async {
-    final state = AppState();
+    final state = testAppState();
     final count = state.patients.length;
     await openForm(tester, state);
     await tester.tap(find.text('Review & register'));
@@ -76,7 +79,7 @@ void main() {
     testWidgets(
       'registration preserves details and consent (ticket: $createTicket)',
       (tester) async {
-        final state = AppState();
+        final state = testAppState();
         final count = state.patients.length;
         final ticketCount = state.tickets.length;
         await openForm(tester, state);
@@ -225,6 +228,13 @@ void main() {
           await tester.tap(find.widgetWithText(FilledButton, 'Send ticket'));
           await tester.pumpAndSettle();
           expect(state.tickets.length, ticketCount + 1);
+          expect(
+            (state.ticketDatabase as FakeTicketDatabase).records[state
+                .tickets
+                .first
+                .id],
+            state.tickets.first.toMap(),
+          );
           expect(state.tickets.first.patientId, patient.id);
           expect(state.tickets.first.symptoms, ['Dizziness']);
           expect(state.tickets.first.status, TicketStatus.sent);
@@ -245,7 +255,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-    await openForm(tester, AppState());
+    await openForm(tester, testAppState());
     expect(tester.takeException(), isNull);
     await tester.drag(
       find.byType(SingleChildScrollView).first,

@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 
-import '../core/theme.dart';
-import '../widgets/common.dart';
+import '../../core/theme.dart';
+import '../../widgets/common.dart';
 import 'login_page.dart';
 
 /// A short launch introduction for the in-memory demo workspace.

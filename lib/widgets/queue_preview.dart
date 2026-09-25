@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../core/app_state.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
-import '../screens/consultation_page.dart';
-import '../screens/patient_profile_page.dart';
+import '../screens/doctor/consultation_page.dart';
+import '../screens/shared/patient_profile_page.dart';
 import 'common.dart';
 
 class QueuePreview extends StatelessWidget {

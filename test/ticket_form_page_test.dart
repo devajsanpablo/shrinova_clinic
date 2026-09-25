@@ -1,3 +1,6 @@
+import 'support/ticket_database_fake.dart';
+import 'support/patient_database_fake.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -6,7 +9,7 @@ import '../tool/load_app_fonts.dart';
 import 'package:rmc_clinic_health/core/app_state.dart';
 import 'package:rmc_clinic_health/core/theme.dart';
 import 'package:rmc_clinic_health/models/models.dart';
-import 'package:rmc_clinic_health/screens/ticket_form_page.dart';
+import 'package:rmc_clinic_health/screens/shared/ticket_form_page.dart';
 
 void main() {
   Future<void> openForm(WidgetTester tester, AppState state) async {
@@ -38,7 +41,7 @@ void main() {
   testWidgets('required fields show inline errors without creating a ticket', (
     tester,
   ) async {
-    final state = AppState();
+    final state = testAppState();
     final count = state.tickets.length;
     await openForm(tester, state);
     await tester.tap(find.text('Review & send'));
@@ -54,7 +57,7 @@ void main() {
     testWidgets('search, review and ${draft ? 'save draft' : 'send ticket'}', (
       tester,
     ) async {
-      final state = AppState();
+      final state = testAppState();
       final count = state.tickets.length;
       final patient = state.patients.first;
       await openForm(tester, state);
@@ -116,6 +119,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(state.tickets.length, count + 1);
       final ticket = state.tickets.first;
+      expect(
+        (state.ticketDatabase as FakeTicketDatabase).records[ticket.id],
+        ticket.toMap(),
+      );
       expect(ticket.patientId, patient.id);
       expect(ticket.complaint, 'Headache');
       expect(ticket.reason, 'Started yesterday');
@@ -129,4 +136,39 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets('failed submission preserves form and retries the same ticket', (
+    tester,
+  ) async {
+    final state = testAppState();
+    final db = state.ticketDatabase as FakeTicketDatabase;
+    db.failWrites = true;
+    final count = state.tickets.length;
+    await openForm(tester, state);
+    await tester.tap(find.text('Search for a patient'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(state.patients.first.fullName));
+    await tester.pumpAndSettle();
+    for (final entry in {
+      'Main complaint *': 'Headache',
+      'Reason for consultation *': 'Since yesterday',
+    }.entries) {
+      final field = find.widgetWithText(TextFormField, entry.key);
+      await tester.ensureVisible(field);
+      await tester.enterText(field, entry.value);
+    }
+    await tester.tap(find.text('Review & send'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Send ticket'));
+    await tester.pumpAndSettle();
+    expect(state.tickets.length, count);
+    expect(find.byType(TicketFormPage), findsOneWidget);
+    expect(find.text('Retry save'), findsOneWidget);
+    db.failWrites = false;
+    await tester.tap(find.text('Retry save'));
+    await tester.pumpAndSettle();
+    expect(state.tickets.length, count + 1);
+    expect(db.records.keys, ['test-ticket-0']);
+    expect(db.records.values.single['complaint'], 'Headache');
+    expect(find.text('Open form'), findsOneWidget);
+  });
 }

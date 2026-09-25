@@ -1,3 +1,4 @@
+import '../test/support/patient_database_fake.dart';
 // Generate local visual previews:
 // flutter test tool/render_previews_test.dart --update-goldens
 import 'package:flutter/material.dart';
@@ -10,7 +11,7 @@ import 'package:rmc_clinic_health/app.dart';
 import 'package:rmc_clinic_health/core/app_state.dart';
 import 'package:rmc_clinic_health/core/theme.dart';
 import 'package:rmc_clinic_health/models/models.dart';
-import 'package:rmc_clinic_health/screens/app_shell.dart';
+import 'package:rmc_clinic_health/screens/shared/app_shell.dart';
 
 void main() {
   testWidgets('render clinic previews', (tester) async {
@@ -37,7 +38,7 @@ void main() {
       );
       await tester.pumpWidget(
         AppStateScope(
-          state: AppState(),
+          state: testAppState(),
           child: MaterialApp(
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,

@@ -1,0 +1,117 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /staff/{staffUid} {
+      allow create: if signedIn()
+        && request.auth.uid == staffUid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'createdAt'
+        ]);
+      allow read: if signedIn() && request.auth.uid == staffUid;
+      allow update, delete: if false;
+    }
+
+    match /doctor/{doctorUid} {
+      allow read: if signedIn() && request.auth.uid == doctorUid;
+      allow write: if false;
+    }
+
+    match /patients/{patientId} {
+      function isClinicMember() {
+        return signedIn()
+          && (exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+            || exists(/databases/$(database)/documents/doctor/$(request.auth.uid)));
+      }
+      function validPatient() {
+        let data = request.resource.data;
+        return data.keys().hasOnly([
+          'firstName', 'lastName', 'dateOfBirth', 'gender', 'phone', 'address',
+          'allergies', 'conditions', 'medicalHistory', 'medications',
+          'emergencyContactName', 'emergencyContactPhone', 'labs',
+          'registeredAt', 'consultations', 'createdBy', 'consentConfirmedAt'
+        ])
+          && data.firstName is string && data.firstName.size() > 0
+          && data.lastName is string && data.lastName.size() > 0
+          && data.dateOfBirth is string && data.registeredAt is string
+          && data.gender in ['Female', 'Male', 'Other', 'Prefer not to say']
+          && data.phone is string && data.phone.size() >= 7
+          && data.address is string && data.address.size() > 0
+          && data.allergies is list && data.conditions is list
+          && data.medications is list && data.consultations == []
+          && data.medicalHistory is string && data.labs is string
+          && data.emergencyContactName is string
+          && data.emergencyContactPhone is string
+          && data.createdBy == request.auth.uid
+          && data.consentConfirmedAt == request.time;
+      }
+      allow read: if isClinicMember();
+      allow create: if isClinicMember() && validPatient();
+      // A retry uses the same document ID after an interrupted save.
+      allow update: if isClinicMember() && validPatient()
+        && resource.data.createdBy == request.auth.uid
+        && request.resource.data.registeredAt == resource.data.registeredAt;
+      allow delete: if false;
+    }
+
+    match /tickets/{ticketId} {
+      function isClinicMember() {
+        return signedIn()
+          && (exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+            || exists(/databases/$(database)/documents/doctor/$(request.auth.uid)));
+      }
+      function validTicket() {
+        let d = request.resource.data;
+        return d.keys().hasOnly([
+          'queueNumber', 'patientId', 'complaint', 'reason', 'symptoms',
+          'bloodPressure', 'heartRate', 'temperature', 'oxygen', 'doctor',
+          'priority', 'notes', 'createdAt', 'status', 'createdBy', 'savedAt', 'consultation'
+        ])
+          && d.queueNumber == 'Q-' + ticketId
+          && d.patientId is string
+          && exists(/databases/$(database)/documents/patients/$(d.patientId))
+          && d.complaint is string && d.complaint.size() > 0
+          && d.reason is string && d.reason.size() > 0
+          && d.symptoms is list && d.symptoms.size() <= 100
+          && d.bloodPressure is string && d.heartRate is string
+          && d.temperature is string && d.oxygen is string
+          && d.doctor is string && d.doctor.size() > 0
+          && d.priority in ['normal', 'urgent', 'emergency']
+          && d.notes is string && d.createdAt is string
+          && d.status in ['draft', 'sent'] && d.consultation == null
+          && d.createdBy == request.auth.uid && d.savedAt == request.time;
+      }
+      allow read: if isClinicMember();
+      allow create: if isClinicMember() && validTicket();
+      function validConsultation() {
+        let c = request.resource.data.consultation;
+        return c is map && c.keys().hasOnly([
+          'date', 'doctor', 'complaint', 'diagnosis', 'treatment', 'prescription'
+        ]) && c.date is string && c.doctor == resource.data.doctor
+          && c.complaint == resource.data.complaint
+          && c.diagnosis is string && c.diagnosis.size() > 0
+          && c.treatment is string && c.prescription is string;
+      }
+      allow update: if signedIn()
+        && exists(/databases/$(database)/documents/doctor/$(request.auth.uid))
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'consultation'])
+        && ((resource.data.status in ['sent', 'waiting', 'inConsultation']
+            && request.resource.data.status == 'inConsultation'
+            && request.resource.data.consultation == null)
+          || (resource.data.status in ['sent', 'waiting', 'inConsultation']
+            && request.resource.data.status == 'completed' && validConsultation()));
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+
+  function signedIn() {
+    return request.auth != null;
+  }
+}

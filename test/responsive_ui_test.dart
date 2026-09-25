@@ -1,3 +1,5 @@
+import 'support/patient_database_fake.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,12 +9,14 @@ import 'package:rmc_clinic_health/app.dart';
 import 'package:rmc_clinic_health/core/app_state.dart';
 import 'package:rmc_clinic_health/core/theme.dart';
 import 'package:rmc_clinic_health/models/models.dart';
-import 'package:rmc_clinic_health/screens/app_shell.dart';
-import 'package:rmc_clinic_health/screens/patient_profile_page.dart';
-import 'package:rmc_clinic_health/screens/consultation_page.dart';
-import 'package:rmc_clinic_health/screens/ticket_form_page.dart';
-import 'package:rmc_clinic_health/screens/register_patient_page.dart';
-import 'package:rmc_clinic_health/screens/patients_page.dart';
+import 'package:rmc_clinic_health/screens/shared/app_shell.dart';
+import 'package:rmc_clinic_health/screens/shared/patient_profile_page.dart';
+import 'package:rmc_clinic_health/screens/doctor/consultation_page.dart';
+import 'package:rmc_clinic_health/screens/shared/ticket_form_page.dart';
+import 'package:rmc_clinic_health/screens/shared/register_patient_page.dart';
+import 'package:rmc_clinic_health/screens/shared/patients_page.dart';
+
+import 'maintenance_test.dart' show FakeMaintenance;
 
 void main() {
   for (final size in [
@@ -28,7 +32,9 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
-        await tester.pumpWidget(const ClinicApp());
+        final maintenance = FakeMaintenance()..ready = true;
+        addTearDown(maintenance.dispose);
+        await tester.pumpWidget(ClinicApp(maintenance: maintenance));
         // Finish loading bundled fonts before measuring animated route layouts.
         await tester.runAsync(() async {
           await loadAppFonts();
@@ -39,10 +45,13 @@ void main() {
         await tester.ensureVisible(signIn);
         await tester.tap(signIn);
         await tester.pumpAndSettle(const Duration(milliseconds: 100));
-        expect(find.text('Today at a glance'), findsOneWidget);
+        expect(
+          find.text('Enter your email and password to continue.'),
+          findsOneWidget,
+        );
         expect(tester.takeException(), isNull);
 
-        final state = AppState();
+        final state = testAppState();
         Future<void> mount(Widget page) async {
           await tester.pumpWidget(
             AppStateScope(
@@ -59,6 +68,10 @@ void main() {
         await tester.tap(queueIcon);
         await tester.pumpAndSettle(const Duration(milliseconds: 100));
         expect(find.text('Your patient queue'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.byIcon(Icons.people_alt_outlined));
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        expect(find.byType(PatientsPage), findsOneWidget);
         expect(tester.takeException(), isNull);
         await mount(const Scaffold(body: PatientsPage()));
         await tester.enterText(

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../core/app_state.dart';
-import '../core/theme.dart';
-import '../models/models.dart';
-import '../widgets/common.dart';
-import '../widgets/intake_form_section.dart';
-import '../widgets/symptom_selector.dart';
+import '../../core/app_state.dart';
+import '../../core/theme.dart';
+import '../../model/patient.dart';
+import '../../widgets/common.dart';
+import '../../widgets/intake_form_section.dart';
+import '../../widgets/symptom_selector.dart';
 import 'ticket_form_page.dart';
 
 class RegisterPatientPage extends StatefulWidget {
@@ -37,6 +37,9 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
   DateTime? dateOfBirth;
   String gender = 'Prefer not to say';
   bool _createTicket = false;
+  bool _saving = false;
+  String? _patientId;
+  DateTime? _registeredAt;
   Set<String> _symptoms = {};
 
   List<TextEditingController> get _controllers => [
@@ -570,14 +573,18 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
             child: LayoutBuilder(
               builder: (_, constraints) {
                 final cancel = TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: _saving ? null : () => Navigator.pop(context),
                   child: const Text('Cancel'),
                 );
                 final review = FilledButton.icon(
-                  onPressed: _review,
+                  onPressed: _saving ? null : _review,
                   icon: const Icon(Icons.arrow_forward_rounded, size: 18),
                   label: Text(
-                    _createTicket ? 'Review & continue' : 'Review & register',
+                    _saving
+                        ? 'Saving patient...'
+                        : (_createTicket
+                              ? 'Review & continue'
+                              : 'Review & register'),
                   ),
                 );
                 if (constraints.maxWidth < 600) {
@@ -612,6 +619,7 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
   );
 
   Future<void> _review() async {
+    if (_saving) return;
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) {
       for (final key in [
@@ -698,7 +706,7 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
                       ),
                     ),
                     subtitle: const Text(
-                      'Simulated confirmation for this demo workspace.',
+                      'Confirm that the patient agreed to registration.',
                       style: TextStyle(fontSize: 12),
                     ),
                   ),
@@ -725,51 +733,61 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
     );
     if (!mounted || confirmed != true) return;
     final state = AppStateScope.of(context);
-    final now = DateTime.now();
-    var nextNumber = state.patients.length + 129;
-    String patientId() =>
-        'PT-${now.year}-${nextNumber.toString().padLeft(5, '0')}';
-    while (state.patients.any((patient) => patient.id == patientId())) {
-      nextNumber++;
-    }
-    final patient = Patient(
-      id: patientId(),
-      firstName: first.text.trim(),
-      lastName: last.text.trim(),
-      dateOfBirth: dateOfBirth!,
-      gender: gender,
-      phone: phone.text.trim(),
-      address: address.text.trim(),
-      allergies: _entries(allergies),
-      conditions: _entries(conditions),
-      medicalHistory: history.text.trim().isEmpty
-          ? 'No medical history recorded.'
-          : history.text.trim(),
-      medications: _entries(medications),
-      emergencyContactName: emergencyName.text.trim(),
-      emergencyContactPhone: emergencyPhone.text.trim(),
-      labs: 'No laboratory findings recorded',
-      registeredAt: now,
-    );
-    final messenger = ScaffoldMessenger.of(context);
-    state.addPatient(patient);
-    if (_createTicket) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => TicketFormPage(
-            initialPatient: patient,
-            initialSymptoms: _symptoms.toList(),
+    final now = _registeredAt ??= DateTime.now();
+    setState(() => _saving = true);
+    try {
+      _patientId ??= state.database.newPatientId();
+      final patient = Patient(
+        id: _patientId!,
+        firstName: first.text.trim(),
+        lastName: last.text.trim(),
+        dateOfBirth: dateOfBirth!,
+        gender: gender,
+        phone: phone.text.trim(),
+        address: address.text.trim(),
+        allergies: _entries(allergies),
+        conditions: _entries(conditions),
+        medicalHistory: history.text.trim().isEmpty
+            ? 'No medical history recorded.'
+            : history.text.trim(),
+        medications: _entries(medications),
+        emergencyContactName: emergencyName.text.trim(),
+        emergencyContactPhone: emergencyPhone.text.trim(),
+        labs: 'No laboratory findings recorded',
+        registeredAt: now,
+      );
+      final messenger = ScaffoldMessenger.of(context);
+      await state.addPatient(patient);
+      if (!mounted) return;
+      if (_createTicket) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => TicketFormPage(
+              initialPatient: patient,
+              initialSymptoms: _symptoms.toList(),
+            ),
+          ),
+        );
+      } else {
+        Navigator.pop(context);
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('${patient.fullName} registered as ${patient.id}.'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not save the patient. Check your connection and try again.',
           ),
         ),
       );
-    } else {
-      Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text('${patient.fullName} registered as ${patient.id}.'),
-      ),
-    );
   }
 
   List<String> _entries(TextEditingController controller) => controller.text

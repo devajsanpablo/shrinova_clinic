@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 
-import '../core/app_state.dart';
-import '../core/theme.dart';
-import '../models/models.dart';
-import '../widgets/common.dart';
-import '../widgets/care_banner.dart';
-import '../widgets/queue_preview.dart';
-import '../widgets/motion.dart';
+import '../../core/app_state.dart';
+import '../../core/theme.dart';
+import '../../models/models.dart';
+import '../../widgets/common.dart';
+import '../../widgets/care_banner.dart';
+import '../../widgets/queue_preview.dart';
+import '../../widgets/motion.dart';
 import 'patient_profile_page.dart';
 import 'register_patient_page.dart';
 import 'ticket_form_page.dart';
 import 'patients_page.dart';
+import 'profile_greeting.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({
@@ -61,11 +62,7 @@ class DashboardPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              PageHeading(
-                title:
-                    '$greeting, ${role == UserRole.staff ? 'Angela' : 'Dr. Reyes'}',
-                subtitle: "Here's how your clinic is doing today.",
-              ),
+              ProfileGreeting(role: role, greeting: greeting),
               const SizedBox(height: 24),
               Reveal(
                 child: CareBanner(

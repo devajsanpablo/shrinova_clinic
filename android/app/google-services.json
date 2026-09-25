@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "713254298828",
+    "firebase_url": "https://clinic-86788-default-rtdb.firebaseio.com",
+    "project_id": "clinic-86788",
+    "storage_bucket": "clinic-86788.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:713254298828:android:29b56ec4090e385f788e69",
+        "android_client_info": {
+          "package_name": "com.example.rmc_clinic_health"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAfcvtNlYp6IxUBGIPtCu86GfnTTttwkhk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
