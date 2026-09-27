@@ -4,6 +4,8 @@ import 'core/app_state.dart';
 import 'core/theme.dart';
 import 'core/maintenance/maintenance_controller.dart';
 import 'core/maintenance/maintenance_gate.dart';
+import 'core/app_update/app_update_gate.dart';
+import 'core/app_update/app_update_service.dart';
 import 'screens/shared/startup_page.dart';
 
 class ClinicApp extends StatefulWidget {
@@ -14,9 +16,11 @@ class ClinicApp extends StatefulWidget {
 }
 
 class _ClinicAppState extends State<ClinicApp> {
+  final navigatorKey = GlobalKey<NavigatorState>();
   late final AppState state = AppState();
   late final MaintenanceController maintenance =
       widget.maintenance ?? MaintenanceController();
+  final AppUpdateService updates = AppUpdateService();
   @override
   void dispose() {
     if (widget.maintenance == null) maintenance.dispose();
@@ -28,11 +32,16 @@ class _ClinicAppState extends State<ClinicApp> {
   Widget build(BuildContext context) => AppStateScope(
     state: state,
     child: MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Shrinovva Homeophatic',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      builder: (context, child) =>
-          MaintenanceGate(controller: maintenance, child: child!),
+      builder: (context, child) => AppUpdateGate(
+        maintenance: maintenance,
+        navigatorKey: navigatorKey,
+        service: updates,
+        child: MaintenanceGate(controller: maintenance, child: child!),
+      ),
       home: const StartupPage(),
     ),
   );

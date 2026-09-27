@@ -2,6 +2,36 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function clinicMember() {
+      return signedIn()
+        && (exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+          || exists(/databases/$(database)/documents/doctor/$(request.auth.uid)));
+    }
+    match /counters/patients {
+      allow read: if clinicMember();
+      allow create: if clinicMember()
+        && request.resource.data.keys().hasOnly(['lastNumber'])
+        && request.resource.data.lastNumber == 1;
+      allow update: if clinicMember()
+        && request.resource.data.keys().hasOnly(['lastNumber'])
+        && request.resource.data.lastNumber is int
+        && request.resource.data.lastNumber == resource.data.lastNumber + 1;
+      allow delete: if false;
+    }
+    match /queueCounters/{day} {
+      allow read: if clinicMember();
+      allow create: if clinicMember()
+        && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['count'])
+        && request.resource.data.count is int
+        && request.resource.data.count > 0;
+      allow update: if clinicMember()
+        && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['count'])
+        && request.resource.data.count is int
+        && request.resource.data.count == resource.data.count + 1;
+      allow delete: if false;
+    }
     match /staff/{staffUid} {
       allow create: if signedIn()
         && request.auth.uid == staffUid
@@ -15,8 +45,25 @@ service cloud.firestore {
     }
 
     match /doctor/{doctorUid} {
-      allow read: if signedIn() && request.auth.uid == doctorUid;
+      allow read: if clinicMember();
       allow write: if false;
+      match /devices/{deviceId} {
+        allow read, delete: if signedIn() && request.auth.uid == doctorUid;
+        allow create, update: if signedIn() && request.auth.uid == doctorUid
+          && exists(/databases/$(database)/documents/doctor/$(doctorUid))
+          && request.resource.data.keys().hasOnly(['token', 'updatedAt'])
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 0
+          && request.resource.data.token.size() < 4096
+          && request.resource.data.updatedAt == request.time;
+      }
+      match /notifications/{notificationId} {
+        allow read: if signedIn() && request.auth.uid == doctorUid;
+        allow update: if signedIn() && request.auth.uid == doctorUid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+          && request.resource.data.read is bool;
+        allow create, delete: if false;
+      }
     }
 
     match /patients/{patientId} {
@@ -31,8 +78,15 @@ service cloud.firestore {
           'firstName', 'lastName', 'dateOfBirth', 'gender', 'phone', 'address',
           'allergies', 'conditions', 'medicalHistory', 'medications',
           'emergencyContactName', 'emergencyContactPhone', 'labs',
-          'registeredAt', 'consultations', 'createdBy', 'consentConfirmedAt'
+          'registeredAt', 'consultations', 'createdBy', 'consentConfirmedAt',
+          'vaccinationStatus', 'vaccines', 'labAttachments'
         ])
+          && data.get('vaccinationStatus', 'Unknown') in ['Yes', 'No', 'Unknown']
+          && data.get('vaccines', []) is list
+          && (data.get('vaccinationStatus', 'Unknown') != 'Yes'
+            || data.get('vaccines', []).size() > 0)
+          && data.get('labAttachments', []) is list
+          && data.get('labAttachments', []).size() <= 5
           && data.firstName is string && data.firstName.size() > 0
           && data.lastName is string && data.lastName.size() > 0
           && data.dateOfBirth is string && data.registeredAt is string
@@ -54,6 +108,29 @@ service cloud.firestore {
         && resource.data.createdBy == request.auth.uid
         && request.resource.data.registeredAt == resource.data.registeredAt;
       allow delete: if false;
+      match /labAttachments/{attachmentId} {
+        allow read: if clinicMember();
+        allow create, update: if clinicMember()
+          && getAfter(/databases/$(database)/documents/patients/$(patientId)).data.createdBy == request.auth.uid
+          && request.resource.data.keys().hasOnly(['name', 'bytes'])
+          && request.resource.data.name is string
+          && request.resource.data.bytes is bytes
+          && request.resource.data.bytes.size() > 0
+          && request.resource.data.bytes.size() <= 750000;
+        allow delete: if false;
+      }
+      match /checkupHistory/{ticketId} {
+        allow read: if clinicMember();
+        allow create: if signedIn()
+          && exists(/databases/$(database)/documents/doctor/$(request.auth.uid))
+          && getAfter(/databases/$(database)/documents/tickets/$(ticketId)).data.patientId == patientId
+          && getAfter(/databases/$(database)/documents/tickets/$(ticketId)).data.doctorUid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/tickets/$(ticketId)).data.status == 'completed'
+          && request.resource.data.keys().hasOnly(['ticketId', 'queueNumber', 'consultation', 'recordedAt'])
+          && request.resource.data.ticketId == ticketId
+          && request.resource.data.recordedAt == request.time;
+        allow update, delete: if false;
+      }
     }
 
     match /tickets/{ticketId} {
@@ -66,10 +143,10 @@ service cloud.firestore {
         let d = request.resource.data;
         return d.keys().hasOnly([
           'queueNumber', 'patientId', 'complaint', 'reason', 'symptoms',
-          'bloodPressure', 'heartRate', 'temperature', 'oxygen', 'doctor',
+          'bloodPressure', 'heartRate', 'temperature', 'oxygen', 'doctor', 'doctorUid',
           'priority', 'notes', 'createdAt', 'status', 'createdBy', 'savedAt', 'consultation'
         ])
-          && d.queueNumber == 'Q-' + ticketId
+          && d.queueNumber.matches('^No\\.[1-9][0-9]*$')
           && d.patientId is string
           && exists(/databases/$(database)/documents/patients/$(d.patientId))
           && d.complaint is string && d.complaint.size() > 0
@@ -78,9 +155,12 @@ service cloud.firestore {
           && d.bloodPressure is string && d.heartRate is string
           && d.temperature is string && d.oxygen is string
           && d.doctor is string && d.doctor.size() > 0
+          && d.doctorUid is string
+          && exists(/databases/$(database)/documents/doctor/$(d.doctorUid))
+          && d.doctor == get(/databases/$(database)/documents/doctor/$(d.doctorUid)).data.username
           && d.priority in ['normal', 'urgent', 'emergency']
           && d.notes is string && d.createdAt is string
-          && d.status in ['draft', 'sent'] && d.consultation == null
+          && d.status == 'sent' && d.consultation == null
           && d.createdBy == request.auth.uid && d.savedAt == request.time;
       }
       allow read: if isClinicMember();
@@ -96,6 +176,9 @@ service cloud.firestore {
       }
       allow update: if signedIn()
         && exists(/databases/$(database)/documents/doctor/$(request.auth.uid))
+        && (resource.data.get('doctorUid', '') == request.auth.uid
+          || (resource.data.get('doctorUid', '') == ''
+            && resource.data.doctor == get(/databases/$(database)/documents/doctor/$(request.auth.uid)).data.username))
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'consultation'])
         && ((resource.data.status in ['sent', 'waiting', 'inConsultation']

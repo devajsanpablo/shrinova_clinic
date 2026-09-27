@@ -1,3 +1,11 @@
+import 'dart:typed_data';
+
+class LabAttachment {
+  const LabAttachment({required this.name, this.bytes});
+  final String name;
+  final Uint8List? bytes;
+}
+
 class Consultation {
   Consultation({
     required this.date,
@@ -32,6 +40,9 @@ class Patient {
     required this.registeredAt,
     this.emergencyContactName = '',
     this.emergencyContactPhone = '',
+    this.vaccinationStatus = 'Unknown',
+    this.vaccines = const [],
+    this.labAttachments = const [],
     List<Consultation>? consultations,
   }) : consultations = consultations ?? [];
   final String id,
@@ -46,6 +57,9 @@ class Patient {
   final String emergencyContactName, emergencyContactPhone;
   final List<String> allergies, conditions, medications;
   final List<Consultation> consultations;
+  final String vaccinationStatus;
+  final List<String> vaccines;
+  final List<LabAttachment> labAttachments;
   Map<String, dynamic> toMap() => {
     'firstName': firstName,
     'lastName': lastName,
@@ -60,6 +74,9 @@ class Patient {
     'emergencyContactName': emergencyContactName,
     'emergencyContactPhone': emergencyContactPhone,
     'labs': labs,
+    'vaccinationStatus': vaccinationStatus,
+    'vaccines': vaccines,
+    'labAttachments': labAttachments.map((file) => file.name).toList(),
     'registeredAt': registeredAt.toIso8601String(),
     'consultations': consultations
         .map(
@@ -90,6 +107,11 @@ class Patient {
     emergencyContactName: data['emergencyContactName'] as String? ?? '',
     emergencyContactPhone: data['emergencyContactPhone'] as String? ?? '',
     labs: data['labs'] as String? ?? '',
+    vaccinationStatus: data['vaccinationStatus'] as String? ?? 'Unknown',
+    vaccines: List<String>.from(data['vaccines'] as List? ?? []),
+    labAttachments: (data['labAttachments'] as List? ?? [])
+        .map((name) => LabAttachment(name: name as String))
+        .toList(),
     registeredAt: DateTime.parse(data['registeredAt'] as String),
     consultations: (data['consultations'] as List? ?? []).map((entry) {
       final c = Map<String, dynamic>.from(entry as Map);
@@ -105,6 +127,14 @@ class Patient {
   );
 
   String get fullName => '$firstName $lastName';
+  bool matchesSearch(String query) {
+    final normalized = query.toLowerCase().replaceAll(',', ' ').trim();
+    final dob =
+        '${dateOfBirth.year}-${dateOfBirth.month.toString().padLeft(2, '0')}-${dateOfBirth.day.toString().padLeft(2, '0')}';
+    final searchable = '$lastName $firstName $id $phone $dob'.toLowerCase();
+    return normalized.split(RegExp(r'\s+')).every(searchable.contains);
+  }
+
   String get initials => '${firstName[0]}${lastName[0]}';
   int get age {
     final now = DateTime.now();

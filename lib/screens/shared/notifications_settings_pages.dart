@@ -1,3 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../core/app_state.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
@@ -5,131 +10,177 @@ import '../../models/models.dart';
 import '../../widgets/common.dart';
 import 'user_profile_card.dart';
 
-class NotificationsPage extends StatelessWidget {
-  const NotificationsPage({super.key});
+class NotificationsPage extends StatefulWidget {
+  const NotificationsPage({super.key, this.onOpenQueue});
+  final VoidCallback? onOpenQueue;
+
+  @override
+  State<NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<NotificationsPage> {
+  static const _pageSize = 15;
+  int _visibleCount = _pageSize;
+
+  String _timestamp(dynamic value) {
+    final date = value is Timestamp
+        ? value.toDate()
+        : value is String
+        ? DateTime.tryParse(value)
+        : null;
+    if (date == null) return '';
+    final local = date.toLocal();
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final meridiem = local.hour < 12 ? 'AM' : 'PM';
+    return '${shortDate(local)} · $hour:$minute $meridiem';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final items = [
-      (
-        'Consultation completed',
-        'Q-021 • Ramon Garcia',
-        Icons.check_circle_outline,
-        AppColors.success,
-      ),
-      (
-        'Ticket accepted by doctor',
-        'Q-026 • Dr. Liza Mendoza',
-        Icons.medical_services_outlined,
-        AppColors.teal,
-      ),
-      (
-        'Urgent ticket created',
-        'Q-025 • Leo Villanueva',
-        Icons.warning_amber_rounded,
-        AppColors.warning,
-      ),
-      (
-        'Ticket reassigned',
-        'Q-019 • Assigned to Dr. Miguel Tan',
-        Icons.swap_horiz_rounded,
-        AppColors.primary,
-      ),
-    ];
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.all(
-          MediaQuery.sizeOf(context).width < 600 ? 18 : 28,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const PageHeading(
-              title: 'Notifications',
-              subtitle: 'Updates from today’s clinic activity',
-            ),
-            const SizedBox(height: 20),
-            Expanded(
-              child: Card(
-                child: ListView.separated(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: items.length,
-                  separatorBuilder: (_, index) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final n = items[i];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      leading: Container(
-                        width: 42,
-                        height: 42,
-                        decoration: BoxDecoration(
-                          color: n.$4.withValues(alpha: .1),
-                          borderRadius: BorderRadius.circular(11),
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return const Center(child: Text('Sign in to see your notifications.'));
+    }
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const PageHeading(
+            title: 'Notifications',
+            subtitle: 'Consultation tickets assigned to you',
+          ),
+          const SizedBox(height: 20),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('doctor')
+                  .doc(uid)
+                  .collection('notifications')
+                  .orderBy('createdAt', descending: true)
+                  .limit(_visibleCount)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const Center(
+                    child: Text(
+                      'Unable to load notifications. Check your connection.',
+                    ),
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final items = snapshot.data!.docs;
+                if (items.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No notifications yet. New assigned tickets will appear here.',
+                    ),
+                  );
+                }
+                return ListView.builder(
+                  itemCount:
+                      items.length + (items.length == _visibleCount ? 1 : 0),
+                  itemBuilder: (context, i) {
+                    if (i == items.length) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Center(
+                          child: TextButton.icon(
+                            onPressed: () =>
+                                setState(() => _visibleCount += _pageSize),
+                            icon: const Icon(Icons.expand_more),
+                            label: const Text('Load more'),
+                          ),
                         ),
-                        child: Icon(n.$3, color: n.$4),
+                      );
+                    }
+                    final item = items[i];
+                    final data = item.data();
+                    final read = data['read'] == true;
+                    return ListTile(
+                      shape: const Border(
+                        bottom: BorderSide(color: AppColors.border),
+                      ),
+                      leading: Icon(
+                        read
+                            ? Icons.notifications_none
+                            : Icons.notifications_active,
+                        color: AppColors.primary,
                       ),
                       title: Text(
-                        n.$1,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+                        data['title'] as String? ?? 'New consultation ticket',
+                        style: TextStyle(
+                          fontWeight: read ? FontWeight.w500 : FontWeight.w800,
+                        ),
                       ),
-                      subtitle: Text('${n.$2}\n${i * 12 + 4} minutes ago'),
-                      isThreeLine: true,
-                      trailing: i < 2
-                          ? Container(
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                color: AppColors.primary,
-                                shape: BoxShape.circle,
+                      subtitle: Text(
+                        [
+                          data['body'] as String? ??
+                              'Open your queue to review this ticket.',
+                          _timestamp(data['createdAt']),
+                        ].where((part) => part.isNotEmpty).join('\n'),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () async {
+                        try {
+                          await AppStateScope.of(context).loadClinicData();
+                          await item.reference.update({'read': true});
+                          if (context.mounted) widget.onOpenQueue?.call();
+                        } catch (_) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Unable to open the queue. Please retry.',
+                                ),
                               ),
-                            )
-                          : null,
+                            );
+                          }
+                        }
+                      },
                     );
                   },
-                ),
-              ),
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class SettingsPage extends StatefulWidget {
+class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key, required this.role, required this.onLogout});
   final UserRole role;
   final VoidCallback onLogout;
-  @override
-  State<SettingsPage> createState() => _SettingsPageState();
-}
 
-class _SettingsPageState extends State<SettingsPage> {
-  bool push = true, email = false, compact = false;
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final spacing = width < 600 ? 18.0 : 28.0;
     return SafeArea(
+      bottom: width >= 700,
       child: SingleChildScrollView(
-        padding: EdgeInsets.all(
-          MediaQuery.sizeOf(context).width < 600 ? 18 : 28,
-        ),
+        padding: EdgeInsets.fromLTRB(spacing, spacing, spacing, spacing + 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const PageHeading(
               title: 'Profile & settings',
-              subtitle: 'Your account details and workspace preferences',
+              subtitle: 'Your account details',
             ),
             const SizedBox(height: 20),
-            UserProfileCard(role: widget.role),
+            UserProfileCard(role: role),
             if (MediaQuery.sizeOf(context).width < 700) ...[
               const SizedBox(height: 15),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: widget.onLogout,
+                  onPressed: onLogout,
                   icon: const Icon(Icons.logout_rounded),
                   label: const Text('Sign out'),
                   style: OutlinedButton.styleFrom(
@@ -139,67 +190,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ],
-            const SizedBox(height: 15),
-            SectionCard(
-              title: 'Notifications',
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('In-app notifications'),
-                    subtitle: const Text(
-                      'Ticket updates and consultation alerts',
-                    ),
-                    value: push,
-                    onChanged: (v) => setState(() => push = v),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Email summaries'),
-                    subtitle: const Text(
-                      'Receive a simulated daily activity summary',
-                    ),
-                    value: email,
-                    onChanged: (v) => setState(() => email = v),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 15),
-            SectionCard(
-              title: 'Appearance & session',
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Compact layout'),
-                    subtitle: const Text(
-                      'Show more information on larger screens',
-                    ),
-                    value: compact,
-                    onChanged: (v) => setState(() => compact = v),
-                  ),
-                  const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.timer_outlined),
-                    title: Text('Automatic logout'),
-                    subtitle: Text(
-                      'After 15 minutes of inactivity (visual concept only)',
-                    ),
-                    trailing: Icon(Icons.chevron_right),
-                  ),
-                  const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.history),
-                    title: Text('Audit trail'),
-                    subtitle: Text(
-                      'Actions in this static demo are not stored permanently',
-                    ),
-                    trailing: Icon(Icons.chevron_right),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),

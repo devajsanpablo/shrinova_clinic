@@ -1,24 +1,75 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../Database/patient_database.dart';
 import '../Database/ticket_database.dart';
+import '../Database/doctor_database.dart';
 import '../models/models.dart';
 
 class AppState extends ChangeNotifier {
   AppState({
     PatientDatabase? database,
     TicketDatabase? ticketDatabase,
+    DoctorDatabase? doctorDatabase,
     List<Patient>? initialPatients,
     List<Ticket>? initialTickets,
+    bool refreshQueueAtMidnight = true,
   }) : database = database ?? FirestorePatientDatabase(),
        ticketDatabase = ticketDatabase ?? FirestoreTicketDatabase(),
+       doctorDatabase = doctorDatabase ?? FirestoreDoctorDatabase(),
        patients = [...?initialPatients],
-       tickets = [...?initialTickets];
+       tickets = [...?initialTickets] {
+    if (refreshQueueAtMidnight) _scheduleDailyQueueRefresh();
+  }
 
   final PatientDatabase database;
   final TicketDatabase ticketDatabase;
+  final DoctorDatabase doctorDatabase;
+  String? currentDoctorUid;
   final List<Patient> patients;
   final List<Ticket> tickets;
+  Timer? _dailyQueueRefresh;
+
+  Iterable<Ticket> ticketsForRole(UserRole role) => tickets.where(
+    (ticket) =>
+        role == UserRole.staff ||
+        (currentDoctorUid != null &&
+            ticket.doctorUid == currentDoctorUid &&
+            ticket.status != TicketStatus.draft),
+  );
+
+  Iterable<Ticket> todayTicketsForRole(UserRole role, {DateTime? at}) {
+    final now = at ?? DateTime.now();
+    return ticketsForRole(role).where((ticket) {
+      final date = ticket.createdAt.toLocal();
+      return date.year == now.year &&
+          date.month == now.month &&
+          date.day == now.day;
+    });
+  }
+
+  void replaceTicketsFromLiveUpdate(Iterable<Ticket> latest) {
+    tickets
+      ..clear()
+      ..addAll(latest);
+    notifyListeners();
+  }
+
+  void _scheduleDailyQueueRefresh() {
+    final now = DateTime.now();
+    final midnight = DateTime(now.year, now.month, now.day + 1);
+    _dailyQueueRefresh = Timer(midnight.difference(now), () {
+      notifyListeners();
+      _scheduleDailyQueueRefresh();
+    });
+  }
+
+  @override
+  void dispose() {
+    _dailyQueueRefresh?.cancel();
+    super.dispose();
+  }
 
   Future<void> loadPatients() async {
     final loaded = await database.loadPatients();
@@ -47,6 +98,7 @@ class AppState extends ChangeNotifier {
   }
 
   void clearSession() {
+    currentDoctorUid = null;
     patients.clear();
     tickets.clear();
     notifyListeners();

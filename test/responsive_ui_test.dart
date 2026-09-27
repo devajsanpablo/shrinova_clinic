@@ -15,6 +15,7 @@ import 'package:rmc_clinic_health/screens/doctor/consultation_page.dart';
 import 'package:rmc_clinic_health/screens/shared/ticket_form_page.dart';
 import 'package:rmc_clinic_health/screens/shared/register_patient_page.dart';
 import 'package:rmc_clinic_health/screens/shared/patients_page.dart';
+import 'package:rmc_clinic_health/screens/shared/notifications_settings_pages.dart';
 
 import 'maintenance_test.dart' show FakeMaintenance;
 
@@ -63,7 +64,10 @@ void main() {
           expect(tester.takeException(), isNull);
         }
 
-        await mount(const AppShell(role: UserRole.doctor));
+        await mount(
+          AppShell(role: UserRole.doctor, profileLoader: () async => null),
+        );
+        expect(find.byTooltip('View notifications'), findsOneWidget);
         final queueIcon = find.byIcon(Icons.view_list_outlined);
         await tester.tap(queueIcon);
         await tester.pumpAndSettle(const Duration(milliseconds: 100));
@@ -73,6 +77,20 @@ void main() {
         await tester.pumpAndSettle(const Duration(milliseconds: 100));
         expect(find.byType(PatientsPage), findsOneWidget);
         expect(tester.takeException(), isNull);
+        await mount(
+          AppShell(
+            key: const ValueKey('staff'),
+            role: UserRole.staff,
+            profileLoader: () async => null,
+          ),
+        );
+        expect(find.byTooltip('View notifications'), findsNothing);
+        expect(find.byIcon(Icons.notifications_none_rounded), findsNothing);
+        await tester.tap(find.byIcon(Icons.tune_rounded));
+        // Profile loading awaits Firebase; only verify the navigation here.
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.byType(SettingsPage), findsOneWidget);
+        expect(tester.takeException(), isNull);
         await mount(const Scaffold(body: PatientsPage()));
         await tester.enterText(
           find.byType(TextField).first,
@@ -81,7 +99,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('No patient found'), findsOneWidget);
         expect(tester.takeException(), isNull);
-        await mount(PatientProfilePage(patient: state.patients.first));
+        await mount(
+          PatientProfilePage(
+            patient: state.patients.first,
+            historyStream: const Stream.empty(),
+          ),
+        );
         await mount(ConsultationPage(ticket: state.tickets.first));
         await tester.drag(
           find.byType(SingleChildScrollView).first,

@@ -32,15 +32,16 @@ class Ticket {
     required this.temperature,
     required this.oxygen,
     required this.doctor,
+    this.doctorUid = '',
     required this.priority,
     required this.notes,
     required this.createdAt,
     this.status = TicketStatus.waiting,
     this.consultation,
   });
-  final String id,
-      queueNumber,
-      patientId,
+  final String id;
+  String queueNumber;
+  final String patientId,
       complaint,
       reason,
       bloodPressure,
@@ -49,6 +50,7 @@ class Ticket {
       oxygen;
   final List<String> symptoms;
   String doctor, notes;
+  final String doctorUid;
   Priority priority;
   TicketStatus status;
   final DateTime createdAt;
@@ -65,6 +67,7 @@ class Ticket {
     'temperature': temperature,
     'oxygen': oxygen,
     'doctor': doctor,
+    'doctorUid': doctorUid,
     'notes': notes,
     'consultation': consultation == null
         ? null
@@ -103,6 +106,7 @@ class Ticket {
     temperature: data['temperature'] as String,
     oxygen: data['oxygen'] as String,
     doctor: data['doctor'] as String,
+    doctorUid: data['doctorUid'] as String? ?? '',
     notes: data['notes'] as String,
     createdAt: DateTime.parse(data['createdAt'] as String),
     priority: Priority.values.byName(data['priority'] as String),

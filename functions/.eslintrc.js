@@ -11,17 +11,18 @@ module.exports = {
     "google",
   ],
   rules: {
+    "max-len": ["error", {"code": 120}],
     "no-restricted-globals": ["error", "name", "length"],
     "prefer-arrow-callback": "error",
     "quotes": ["error", "double", {"allowTemplateLiterals": true}],
   },
   overrides: [
     {
-      files: ["**/*.spec.*"],
+      files: ["**/*.spec.*", "test/**/*.test.js"],
       env: {
         mocha: true,
       },
-      rules: {},
+      rules: {"require-jsdoc": "off"},
     },
   ],
   globals: {},

@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 
 import '../../models/models.dart';
 import '../../model/clinic_profile.dart';
+import '../../core/notification_service.dart';
 
 /// Handles clinic credentials and verifies the selected workspace membership.
 ///
@@ -81,7 +82,10 @@ class StaffAuthService {
     }
   }
 
-  Future<void> signOut() => _auth.signOut();
+  Future<void> signOut() async {
+    await ClinicNotifications.instance.signOut();
+    await _auth.signOut();
+  }
 
   Future<ClinicProfile?> loadProfile(UserRole role) async {
     final user = currentUser;

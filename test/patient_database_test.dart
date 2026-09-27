@@ -1,10 +1,37 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rmc_clinic_health/core/app_state.dart';
 import 'package:rmc_clinic_health/data/mock_data.dart';
+import 'package:rmc_clinic_health/model/patient.dart';
 
 import 'support/patient_database_fake.dart';
 
 void main() {
+  test('last-name-first search supports commas and case', () {
+    final patient = mockPatients.first;
+    expect(patient.matchesSearch(patient.lastName.toUpperCase()), isTrue);
+    expect(
+      patient.matchesSearch('${patient.lastName}, ${patient.firstName}'),
+      isTrue,
+    );
+    expect(patient.matchesSearch('no-matching-name'), isFalse);
+  });
+  test('legacy patients default safely and new clinical fields persist', () {
+    final data = mockPatients.first.toMap()
+      ..remove('vaccinationStatus')
+      ..remove('vaccines')
+      ..remove('labAttachments');
+    final legacy = Patient.fromMap('legacy', data);
+    expect(legacy.vaccinationStatus, 'Unknown');
+    expect(legacy.labAttachments, isEmpty);
+    data.addAll({
+      'vaccinationStatus': 'Yes',
+      'vaccines': ['Influenza'],
+      'labAttachments': ['result.jpg'],
+    });
+    final restored = Patient.fromMap('PT-01', data);
+    expect(restored.toMap()['vaccines'], ['Influenza']);
+    expect(restored.labAttachments.single.name, 'result.jpg');
+  });
   test('production state starts without seeded patients or tickets', () {
     final state = AppState();
     expect(state.patients, isEmpty);

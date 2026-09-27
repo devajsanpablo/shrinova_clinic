@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_state.dart';
 import '../../core/theme.dart';
-import '../../data/mock_data.dart';
+import '../../Database/doctor_database.dart';
 import '../../models/models.dart';
 import '../../widgets/common.dart';
 import '../../widgets/intake_form_section.dart';
@@ -13,8 +13,10 @@ class TicketFormPage extends StatefulWidget {
     super.key,
     this.initialPatient,
     this.initialSymptoms = const [],
+    this.walkthroughBackKey,
   });
   final Patient? initialPatient;
+  final Key? walkthroughBackKey;
   final List<String> initialSymptoms;
 
   @override
@@ -26,6 +28,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
   final _patientKey = GlobalKey<FormFieldState<Patient>>();
   final _complaintKey = GlobalKey<FormFieldState<String>>();
   final _reasonKey = GlobalKey<FormFieldState<String>>();
+  final _doctorKey = GlobalKey<FormFieldState<String>>();
   final complaint = TextEditingController();
   final reason = TextEditingController();
   final notes = TextEditingController();
@@ -36,7 +39,12 @@ class _TicketFormPageState extends State<TicketFormPage> {
   bool _saving = false;
   Ticket? _pendingTicket;
   Patient? patient;
-  String doctor = doctors.first;
+  String doctor = '';
+  String? doctorUid;
+  List<DoctorOption> _doctors = [];
+  bool _loadingDoctors = true;
+  String? _doctorError;
+  bool _requestedDoctors = false;
   Priority priority = Priority.normal;
   final selected = <String>{};
 
@@ -47,6 +55,42 @@ class _TicketFormPageState extends State<TicketFormPage> {
     selected.addAll(widget.initialSymptoms);
     complaint.addListener(_refresh);
     reason.addListener(_refresh);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_requestedDoctors) {
+      _requestedDoctors = true;
+      _loadDoctors();
+    }
+  }
+
+  Future<void> _loadDoctors() async {
+    setState(() {
+      _loadingDoctors = true;
+      _doctorError = null;
+    });
+    try {
+      final loaded = await AppStateScope.of(context).doctorDatabase
+          .loadDoctors();
+      if (!mounted) return;
+      setState(() {
+        _doctors = loaded;
+        _loadingDoctors = false;
+        if (loaded.isEmpty) {
+          _doctorError = 'No doctors with a username are available.';
+        }
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadingDoctors = false;
+          _doctorError =
+              'Unable to load doctors. Check your connection and retry.';
+        });
+      }
+    }
   }
 
   void _refresh() => setState(() {});
@@ -68,6 +112,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
   }
 
   int get _completed =>
+      (doctorUid == null ? 0 : 1) +
       (patient == null ? 0 : 1) +
       (complaint.text.trim().isEmpty ? 0 : 1) +
       (reason.text.trim().isEmpty ? 0 : 1);
@@ -77,6 +122,9 @@ class _TicketFormPageState extends State<TicketFormPage> {
     final state = AppStateScope.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: widget.walkthroughBackKey == null
+            ? null
+            : BackButton(key: widget.walkthroughBackKey),
         backgroundColor: Colors.white,
         title: const Text('Consultation ticket'),
         bottom: const PreferredSize(
@@ -170,7 +218,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
         Row(
           children: [
             Icon(
-              _completed == 3
+              _completed == 4
                   ? Icons.check_circle_outline
                   : Icons.edit_note_rounded,
               color: AppColors.primary,
@@ -178,7 +226,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                _completed == 3
+                _completed == 4
                     ? 'Ready to review'
                     : 'A few details to get started',
                 style: const TextStyle(
@@ -188,14 +236,14 @@ class _TicketFormPageState extends State<TicketFormPage> {
               ),
             ),
             Text(
-              '$_completed / 3',
+              '$_completed / 4',
               style: const TextStyle(color: AppColors.primaryDark),
             ),
           ],
         ),
         const SizedBox(height: 10),
         LinearProgressIndicator(
-          value: _completed / 3,
+          value: _completed / 4,
           minHeight: 5,
           borderRadius: BorderRadius.circular(8),
           backgroundColor: Colors.white,
@@ -203,7 +251,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
         ),
         const SizedBox(height: 10),
         const Text(
-          'Patient, main complaint and reason for consultation are required.',
+          'Patient, main complaint, reason for consultation and assigned doctor are required.',
           style: TextStyle(fontSize: 12, color: AppColors.primaryDark),
         ),
       ],
@@ -443,25 +491,48 @@ class _TicketFormPageState extends State<TicketFormPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         DropdownButtonFormField<String>(
+          key: _doctorKey,
           isExpanded: true,
-          initialValue: doctor,
+          initialValue: doctorUid,
           decoration: const InputDecoration(
-            labelText: 'Assigned doctor',
+            labelText: 'Assigned doctor *',
+            hintText: 'Select a doctor',
+            helperText: 'The selected doctor receives the ticket notification.',
+            helperMaxLines: 3,
             floatingLabelBehavior: FloatingLabelBehavior.always,
           ),
-          items: doctors
+          items: _doctors
               .map(
                 (value) => DropdownMenuItem(
-                  value: value,
-                  child: Text(value, overflow: TextOverflow.ellipsis),
+                  value: value.uid,
+                  child: Text(value.username, overflow: TextOverflow.ellipsis),
                 ),
               )
               .toList(),
-          onChanged: (value) {
-            if (value != null) setState(() => doctor = value);
-          },
+          validator: (value) =>
+              value == null ? 'Choose the doctor in charge.' : null,
+          onChanged: _loadingDoctors
+              ? null
+              : (value) {
+                  if (value != null) {
+                    setState(() {
+                      doctorUid = value;
+                      doctor = _doctors
+                          .firstWhere((d) => d.uid == value)
+                          .username;
+                    });
+                  }
+                },
         ),
         const SizedBox(height: 20),
+        if (_loadingDoctors) const LinearProgressIndicator(),
+        if (_doctorError != null) ...[
+          Text(_doctorError!, style: const TextStyle(color: AppColors.danger)),
+          TextButton(
+            onPressed: _loadDoctors,
+            child: const Text('Retry loading doctors'),
+          ),
+        ],
         const Text(
           'Visit priority',
           style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink),
@@ -517,34 +588,25 @@ class _TicketFormPageState extends State<TicketFormPage> {
             constraints: const BoxConstraints(maxWidth: 1180),
             child: LayoutBuilder(
               builder: (_, constraints) {
-                final buttons = [
-                  OutlinedButton(
-                    onPressed: _saving
-                        ? null
-                        : () => _submit(state, TicketStatus.draft),
-                    child: const Text('Save draft'),
+                final submit = FilledButton.icon(
+                  onPressed: _saving ? null : () => _submit(state),
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: Text(
+                    _saving
+                        ? 'Saving ticket...'
+                        : _pendingTicket != null
+                        ? 'Retry save'
+                        : 'Review & send',
                   ),
-                  FilledButton.icon(
-                    onPressed: _saving
-                        ? null
-                        : () => _submit(state, TicketStatus.sent),
-                    icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                    label: Text(
-                      _saving
-                          ? 'Saving ticket...'
-                          : _pendingTicket != null
-                          ? 'Retry save'
-                          : 'Review & send',
-                    ),
-                  ),
-                ];
-                if (constraints.maxWidth < 600) {
+                );
+                if (constraints.maxWidth < 900 ||
+                    MediaQuery.textScalerOf(context).scale(14) > 17) {
                   return OverflowBar(
                     spacing: 10,
                     overflowSpacing: 8,
                     alignment: MainAxisAlignment.end,
                     overflowAlignment: OverflowBarAlignment.end,
-                    children: buttons,
+                    children: [submit],
                   );
                 }
                 return Row(
@@ -555,15 +617,13 @@ class _TicketFormPageState extends State<TicketFormPage> {
                     ),
                     const Spacer(),
                     Text(
-                      _completed == 3
+                      _completed == 4
                           ? 'Required details complete'
-                          : '$_completed of 3 required details',
+                          : '$_completed of 4 required details',
                       style: const TextStyle(fontSize: 12),
                     ),
                     const SizedBox(width: 20),
-                    buttons[0],
-                    const SizedBox(width: 10),
-                    buttons[1],
+                    submit,
                   ],
                 );
               },
@@ -574,7 +634,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
     ),
   );
 
-  Future<void> _submit(AppState state, TicketStatus status) async {
+  Future<void> _submit(AppState state) async {
     if (_saving) return;
     if (_pendingTicket != null) {
       await _saveTicket(state, _pendingTicket!);
@@ -586,6 +646,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
         _patientKey,
         _complaintKey,
         _reasonKey,
+        _doctorKey,
       ]) {
         if (key.currentState?.hasError ?? false) {
           await Scrollable.ensureVisible(
@@ -598,17 +659,16 @@ class _TicketFormPageState extends State<TicketFormPage> {
       }
       return;
     }
-    final draft = status == TicketStatus.draft;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         constraints: const BoxConstraints(maxWidth: 540),
-        icon: Icon(
-          draft ? Icons.save_outlined : Icons.fact_check_outlined,
+        icon: const Icon(
+          Icons.fact_check_outlined,
           color: AppColors.primary,
           size: 32,
         ),
-        title: Text(draft ? 'Save consultation draft?' : 'Review consultation'),
+        title: const Text('Review consultation'),
         content: SizedBox(
           width: 460,
           child: SingleChildScrollView(
@@ -636,13 +696,8 @@ class _TicketFormPageState extends State<TicketFormPage> {
                 if (notes.text.trim().isNotEmpty)
                   _reviewDetail('Staff notes', notes.text.trim()),
                 const SizedBox(height: 8),
-                Text(
-                  draft ? 'This draft will be saved to the clinic queue.' : 'This ticket will be available in the doctor workspace.',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 6),
                 const Text(
-                  'Demo workspace · Fictional patient data.',
+                  'This ticket will be available in the doctor workspace.',
                   style: TextStyle(fontSize: 12),
                 ),
               ],
@@ -656,7 +711,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(draft ? 'Save draft' : 'Send ticket'),
+            child: const Text('Send ticket'),
           ),
         ],
       ),
@@ -666,7 +721,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
       final id = state.ticketDatabase.newTicketId();
       final ticket = Ticket(
         id: id,
-        queueNumber: 'Q-$id',
+        queueNumber: 'No.1',
         patientId: patient!.id,
         complaint: complaint.text.trim(),
         reason: reason.text.trim(),
@@ -676,10 +731,11 @@ class _TicketFormPageState extends State<TicketFormPage> {
         temperature: temp.text.trim(),
         oxygen: oxygen.text.trim(),
         doctor: doctor,
+        doctorUid: doctorUid!,
         priority: priority,
         notes: notes.text.trim(),
         createdAt: DateTime.now(),
-        status: status,
+        status: TicketStatus.sent,
       );
       _pendingTicket = ticket;
       await _saveTicket(state, ticket);
@@ -703,7 +759,7 @@ class _TicketFormPageState extends State<TicketFormPage> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            '${ticket.queueNumber} ${ticket.status == TicketStatus.draft ? 'saved' : 'sent to ${ticket.doctor}'} successfully.',
+            '${ticket.queueNumber} sent to ${ticket.doctor} successfully.',
           ),
         ),
       );
@@ -762,67 +818,89 @@ class _PatientPickerState extends State<_PatientPicker> {
   @override
   Widget build(BuildContext context) {
     final matches = widget.patients
-        .where(
-          (patient) => '${patient.fullName} ${patient.id}'
-              .toLowerCase()
-              .contains(query.trim().toLowerCase()),
-        )
+        .where((patient) => patient.matchesSearch(query))
         .toList();
-    return AlertDialog(
-      title: const Text('Choose a patient'),
-      content: SizedBox(
-        width: 480,
-        height: 420,
-        child: Column(
-          children: [
-            TextField(
-              autofocus: true,
-              onChanged: (value) => setState(() => query = value),
-              decoration: const InputDecoration(
-                hintText: 'Search by name or patient ID',
-                prefixIcon: Icon(Icons.search_rounded),
+    final compact =
+        MediaQuery.sizeOf(context).height -
+            MediaQuery.viewInsetsOf(context).bottom <
+        280;
+    return Scaffold(
+      appBar: compact
+          ? null
+          : AppBar(
+              title: const Text('Choose a patient'),
+              leading: IconButton(
+                tooltip: 'Close patient search',
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
               ),
             ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: matches.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No patients found. Try a different name or ID.',
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: matches.length,
-                      separatorBuilder: (_, index) => const Divider(height: 1),
-                      itemBuilder: (_, index) {
-                        final patient = matches[index];
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 6,
-                          ),
-                          leading: PatientAvatar(
-                            initials: patient.initials,
-                            radius: 20,
-                          ),
-                          title: Text(patient.fullName),
-                          subtitle: Text(
-                            '${patient.id} · ${patient.age} years · ${patient.gender}',
-                          ),
-                          trailing: const Icon(Icons.chevron_right_rounded),
-                          onTap: () => Navigator.pop(context, patient),
-                        );
-                      },
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: compact ? 4 : 16,
+              ),
+              child: Column(
+                children: [
+                  TextField(
+                    autofocus: true,
+                    onChanged: (value) => setState(() => query = value),
+                    decoration: InputDecoration(
+                      hintText: 'Search last name, first name or patient ID',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: compact
+                          ? IconButton(
+                              tooltip: 'Close patient search',
+                              icon: const Icon(Icons.close),
+                              onPressed: () => Navigator.pop(context),
+                            )
+                          : null,
                     ),
+                  ),
+                  if (!compact) const SizedBox(height: 12),
+                  Expanded(
+                    child: matches.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No patients found. Try a different name or ID.',
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: matches.length,
+                            separatorBuilder: (_, index) =>
+                                const Divider(height: 1),
+                            itemBuilder: (_, index) {
+                              final patient = matches[index];
+                              return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 6,
+                                ),
+                                leading: PatientAvatar(
+                                  initials: patient.initials,
+                                  radius: 20,
+                                ),
+                                title: Text(patient.fullName),
+                                subtitle: Text(
+                                  '${patient.id} · ${patient.age} years · ${patient.gender}',
+                                ),
+                                trailing: const Icon(
+                                  Icons.chevron_right_rounded,
+                                ),
+                                onTap: () => Navigator.pop(context, patient),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-      ],
     );
   }
 }

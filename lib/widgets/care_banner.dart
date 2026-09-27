@@ -9,8 +9,11 @@ class CareBanner extends StatelessWidget {
     required this.doctor,
     required this.onPrimary,
     required this.onSecondary,
+    this.primaryKey,
+    this.secondaryKey,
   });
   final bool doctor;
+  final Key? primaryKey, secondaryKey;
   final VoidCallback onPrimary, onSecondary;
 
   @override
@@ -80,6 +83,7 @@ class CareBanner extends StatelessWidget {
                     runSpacing: 10,
                     children: [
                       FilledButton.icon(
+                        key: primaryKey,
                         onPressed: onPrimary,
                         icon: Icon(
                           doctor
@@ -90,6 +94,7 @@ class CareBanner extends StatelessWidget {
                         label: Text(doctor ? 'Open my queue' : 'Create ticket'),
                       ),
                       OutlinedButton.icon(
+                        key: secondaryKey,
                         onPressed: onSecondary,
                         style: OutlinedButton.styleFrom(
                           backgroundColor: Colors.white,

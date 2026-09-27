@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';
+import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
+import 'package:uri_content/uri_content.dart';
 
 import '../../core/app_state.dart';
 import '../../core/theme.dart';
@@ -9,7 +14,8 @@ import '../../widgets/symptom_selector.dart';
 import 'ticket_form_page.dart';
 
 class RegisterPatientPage extends StatefulWidget {
-  const RegisterPatientPage({super.key});
+  const RegisterPatientPage({super.key, this.walkthroughBackKey});
+  final Key? walkthroughBackKey;
 
   @override
   State<RegisterPatientPage> createState() => _RegisterPatientPageState();
@@ -23,6 +29,7 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
   final _phoneKey = GlobalKey<FormFieldState<String>>();
   final _addressKey = GlobalKey<FormFieldState<String>>();
   final _emergencyPhoneKey = GlobalKey<FormFieldState<String>>();
+  final _vaccinesKey = GlobalKey<FormFieldState<String>>();
   final first = TextEditingController();
   final last = TextEditingController();
   final birth = TextEditingController();
@@ -34,6 +41,11 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
   final medications = TextEditingController();
   final emergencyName = TextEditingController();
   final emergencyPhone = TextEditingController();
+  final vaccines = TextEditingController();
+  final labNotes = TextEditingController();
+  String vaccinationStatus = 'Unknown';
+  final List<LabAttachment> _labAttachments = [];
+  bool _pickingImage = false;
   DateTime? dateOfBirth;
   String gender = 'Prefer not to say';
   bool _createTicket = false;
@@ -54,6 +66,8 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
     medications,
     emergencyName,
     emergencyPhone,
+    vaccines,
+    labNotes,
   ];
 
   @override
@@ -61,6 +75,9 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
     super.initState();
     for (final controller in _controllers) {
       controller.addListener(_refresh);
+    }
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      _recoverImage();
     }
   }
 
@@ -90,6 +107,9 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
+      leading: widget.walkthroughBackKey == null
+          ? null
+          : BackButton(key: widget.walkthroughBackKey),
       backgroundColor: Colors.white,
       title: const Text('Patient registration'),
       bottom: const PreferredSize(
@@ -129,6 +149,8 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
                           _contactSection(),
                           const SizedBox(height: 20),
                           _healthSection(),
+                          const SizedBox(height: 20),
+                          _laboratorySection(),
                           const SizedBox(height: 20),
                           _consultationSection(),
                         ],
@@ -347,12 +369,258 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
           lines: 2,
           helper: 'Separate multiple medications with commas.',
         ),
+        const SizedBox(height: 20),
+        DropdownButtonFormField<String>(
+          initialValue: vaccinationStatus,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Vaccination history',
+            floatingLabelBehavior: FloatingLabelBehavior.always,
+            helperText: 'Record past vaccinations reported by the patient or shown in their records. Unknown means the history has not been confirmed.',
+            helperMaxLines: 4,
+          ),
+          items: ['Unknown', 'Yes', 'No']
+              .map(
+                (value) => DropdownMenuItem(
+                  value: value,
+                  child: Text(switch (value) {
+                    'Yes' => 'Yes — vaccines received',
+                    'No' => 'No — none received',
+                    _ => 'Unknown — not confirmed',
+                  }, overflow: TextOverflow.ellipsis),
+                ),
+              )
+              .toList(),
+          onChanged: (value) => setState(() => vaccinationStatus = value!),
+        ),
+        if (vaccinationStatus == 'Yes') ...[
+          const SizedBox(height: 20),
+          _textField(
+            controller: vaccines,
+            key: _vaccinesKey,
+            label: 'Vaccine types *',
+            hint: 'e.g. COVID-19, influenza, tetanus',
+            helper: 'List known vaccine names, separated by commas. This records vaccination history; it does not prescribe a vaccine.',
+            validator: (_) => _entries(vaccines).isEmpty
+                ? 'Enter at least one vaccine type.'
+                : null,
+          ),
+        ],
       ],
     ),
   );
 
-  Widget _consultationSection() => IntakeFormSection(
+  Widget _laboratorySection() => IntakeFormSection(
     number: '04',
+    title: 'Laboratory results',
+    subtitle: 'Optional · Attach up to 5 images, 750 KB each. Check that the text is readable.',
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _textField(
+          controller: labNotes,
+          label: 'Laboratory findings',
+          hint: 'Add notes about the results',
+          lines: 3,
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _saving || _pickingImage || _labAttachments.length >= 5
+                  ? null
+                  : () => _pickLabImage(ImageSource.gallery),
+              icon: const Icon(Icons.attach_file),
+              label: const Text('Attach image'),
+            ),
+            if (kIsWeb ||
+                defaultTargetPlatform == TargetPlatform.android ||
+                defaultTargetPlatform == TargetPlatform.iOS)
+              OutlinedButton.icon(
+                onPressed:
+                    _saving || _pickingImage || _labAttachments.length >= 5
+                    ? null
+                    : _scanLabResults,
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: const Text('Scan document'),
+              ),
+          ],
+        ),
+        if (_pickingImage) const LinearProgressIndicator(),
+        for (final attachment in _labAttachments)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Image.memory(
+              attachment.bytes!,
+              width: 48,
+              height: 48,
+              fit: BoxFit.cover,
+            ),
+            title: Text(
+              attachment.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => Dialog(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: InteractiveViewer(
+                        child: Image.memory(attachment.bytes!),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            trailing: IconButton(
+              tooltip: 'Remove image',
+              icon: const Icon(Icons.close),
+              onPressed: _saving
+                  ? null
+                  : () => setState(() => _labAttachments.remove(attachment)),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  Future<void> _recoverImage() async {
+    try {
+      final result = await ImagePicker().retrieveLostData();
+      for (final file in result.files ?? <XFile>[]) {
+        await _addLabImage(file);
+      }
+    } catch (_) {
+      _imageError('Could not recover the photo. Please attach it again.');
+    }
+  }
+
+  Future<void> _pickLabImage(ImageSource source) async {
+    setState(() => _pickingImage = true);
+    try {
+      final file = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 2000,
+        imageQuality: 85,
+        requestFullMetadata: false,
+      );
+      if (file != null) await _addLabImage(file);
+    } catch (_) {
+      _imageError(
+        'Could not open the image or camera. Check permissions and try again.',
+      );
+    } finally {
+      if (mounted) setState(() => _pickingImage = false);
+    }
+  }
+
+  Future<void> _scanLabResults() async {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS)) {
+      await _pickLabImage(ImageSource.camera);
+      return;
+    }
+
+    setState(() => _pickingImage = true);
+    try {
+      final result = await FlutterDocScanner().getScannedDocumentAsImages(
+        page: 5 - _labAttachments.length,
+        imageFormat: ImageFormat.jpeg,
+        quality: 0.75,
+      );
+      for (final path in result?.images ?? <String>[]) {
+        if (!mounted) break;
+        final uri = Uri.parse(path);
+        final bytes = uri.scheme == 'content'
+            ? await uri.getContent()
+            : await XFile(uri.scheme == 'file' ? uri.toFilePath() : path)
+                  .readAsBytes();
+        await _addLabImageBytes(
+          bytes,
+          name: 'Lab scan ${_labAttachments.length + 1}.jpg',
+          compress: true,
+        );
+      }
+    } catch (_) {
+      _imageError(
+        'Could not scan the document. Check camera permission and try again.',
+      );
+    } finally {
+      if (mounted) setState(() => _pickingImage = false);
+    }
+  }
+
+  Future<void> _addLabImage(XFile file, {bool compress = false}) async {
+    if (!compress && await file.length() > 750000) {
+      _imageError('This image exceeds 750 KB. Choose a smaller image.');
+      return;
+    }
+    await _addLabImageBytes(
+      await file.readAsBytes(),
+      name: file.name,
+      compress: compress,
+    );
+  }
+
+  Future<void> _addLabImageBytes(
+    Uint8List imageBytes, {
+    required String name,
+    bool compress = false,
+  }) async {
+    var bytes = imageBytes;
+    if (compress && bytes.length > 750000) {
+      final original = img.decodeImage(bytes);
+      if (original == null) {
+        _imageError('Could not read the scanned image. Please scan it again.');
+        return;
+      }
+      for (final longestSide in [2000, 1600, 1200, 900]) {
+        final resized = original.width >= original.height
+            ? (original.width > longestSide
+                  ? img.copyResize(original, width: longestSide)
+                  : original)
+            : (original.height > longestSide
+                  ? img.copyResize(original, height: longestSide)
+                  : original);
+        for (final quality in [85, 70, 55]) {
+          bytes = Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+          if (bytes.length <= 750000) break;
+        }
+        if (bytes.length <= 750000) break;
+      }
+    }
+    if (bytes.length > 750000) {
+      _imageError('This scan exceeds 750 KB. Try scanning one page at a time.');
+      return;
+    }
+    final decoded = await decodeImageFromList(bytes);
+    decoded.dispose();
+    if (!mounted || _labAttachments.length >= 5) return;
+    setState(
+      () => _labAttachments.add(LabAttachment(name: name, bytes: bytes)),
+    );
+  }
+
+  void _imageError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Widget _consultationSection() => IntakeFormSection(
+    number: '05',
     title: 'Consultation ticket',
     subtitle: 'Continue to a consultation for this patient after registration.',
     child: Column(
@@ -577,7 +845,7 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
                   child: const Text('Cancel'),
                 );
                 final review = FilledButton.icon(
-                  onPressed: _saving ? null : _review,
+                  onPressed: _saving || _pickingImage ? null : _review,
                   icon: const Icon(Icons.arrow_forward_rounded, size: 18),
                   label: Text(
                     _saving
@@ -629,6 +897,7 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
         _phoneKey,
         _addressKey,
         _emergencyPhoneKey,
+        _vaccinesKey,
       ]) {
         if (key.currentState?.hasError ?? false) {
           await Scrollable.ensureVisible(
@@ -667,6 +936,14 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
                   _detail('Address', address.text),
                   const Divider(height: 24),
                   _detail('Medical history', history.text),
+                  _detail('Vaccinated', vaccinationStatus),
+                  if (vaccinationStatus == 'Yes')
+                    _detail('Vaccine types', vaccines.text),
+                  _detail('Laboratory findings', labNotes.text),
+                  _detail(
+                    'Laboratory images',
+                    _labAttachments.map((file) => file.name).join('\n'),
+                  ),
                   _detail('Allergies', _entries(allergies).join(', ')),
                   _detail(
                     'Existing conditions',
@@ -736,7 +1013,8 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
     final now = _registeredAt ??= DateTime.now();
     setState(() => _saving = true);
     try {
-      _patientId ??= state.database.newPatientId();
+      _patientId ??= await state.database.newPatientId();
+      if (!mounted) return;
       final patient = Patient(
         id: _patientId!,
         firstName: first.text.trim(),
@@ -753,7 +1031,12 @@ class _RegisterPatientPageState extends State<RegisterPatientPage> {
         medications: _entries(medications),
         emergencyContactName: emergencyName.text.trim(),
         emergencyContactPhone: emergencyPhone.text.trim(),
-        labs: 'No laboratory findings recorded',
+        labs: labNotes.text.trim().isEmpty
+            ? 'No laboratory findings recorded'
+            : labNotes.text.trim(),
+        vaccinationStatus: vaccinationStatus,
+        vaccines: vaccinationStatus == 'Yes' ? _entries(vaccines) : [],
+        labAttachments: List.of(_labAttachments),
         registeredAt: now,
       );
       final messenger = ScaffoldMessenger.of(context);

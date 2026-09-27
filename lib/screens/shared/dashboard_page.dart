@@ -18,16 +18,17 @@ class DashboardPage extends StatelessWidget {
     super.key,
     required this.role,
     required this.onNavigate,
+    this.createTicketKey,
+    this.registerPatientKey,
   });
   final UserRole role;
+  final Key? createTicketKey, registerPatientKey;
   final ValueChanged<int> onNavigate;
 
   @override
   Widget build(BuildContext context) {
     final state = AppStateScope.of(context);
-    final tickets = state.tickets
-        .where((t) => role == UserRole.staff || t.doctor == 'Dr. Adrian Reyes')
-        .toList();
+    final tickets = state.todayTicketsForRole(role).toList();
     final waiting = tickets
         .where(
           (t) =>
@@ -66,6 +67,8 @@ class DashboardPage extends StatelessWidget {
               const SizedBox(height: 24),
               Reveal(
                 child: CareBanner(
+                  primaryKey: createTicketKey,
+                  secondaryKey: registerPatientKey,
                   doctor: role == UserRole.doctor,
                   onPrimary: () => role == UserRole.doctor
                       ? onNavigate(1)

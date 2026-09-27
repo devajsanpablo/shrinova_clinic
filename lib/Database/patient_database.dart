@@ -1,10 +1,13 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../model/patient.dart';
 
 abstract class PatientDatabase {
-  String newPatientId();
+  Future<String> newPatientId();
+  Future<Uint8List> loadLabImage(String patientId, int index);
   Future<List<Patient>> loadPatients();
   Future<void> savePatient(Patient patient);
 }
@@ -14,7 +17,26 @@ class FirestorePatientDatabase implements PatientDatabase {
       FirebaseFirestore.instance.collection('patients');
 
   @override
-  String newPatientId() => _patients.doc().id;
+  Future<String> newPatientId() async {
+    final counter = FirebaseFirestore.instance.doc('counters/patients');
+    return FirebaseFirestore.instance.runTransaction((transaction) async {
+      final snapshot = await transaction.get(counter);
+      final next = (snapshot.data()?['lastNumber'] as int? ?? 0) + 1;
+      final id = 'PT-${next.toString().padLeft(2, '0')}';
+      transaction.set(counter, {'lastNumber': next});
+      return id;
+    });
+  }
+
+  @override
+  Future<Uint8List> loadLabImage(String patientId, int index) async {
+    final file = await _patients
+        .doc(patientId)
+        .collection('labAttachments')
+        .doc('$index')
+        .get();
+    return (file.data()!['bytes'] as Blob).bytes;
+  }
 
   @override
   Future<List<Patient>> loadPatients() async {
@@ -30,10 +52,22 @@ class FirestorePatientDatabase implements PatientDatabase {
   Future<void> savePatient(Patient patient) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw StateError('Clinic sign-in is required.');
-    await _patients.doc(patient.id).set({
+    final batch = FirebaseFirestore.instance.batch();
+    final reference = _patients.doc(patient.id);
+    batch.set(reference, {
       ...patient.toMap(),
       'createdBy': user.uid,
       'consentConfirmedAt': FieldValue.serverTimestamp(),
     });
+    for (var i = 0; i < patient.labAttachments.length; i++) {
+      final attachment = patient.labAttachments[i];
+      if (attachment.bytes != null) {
+        batch.set(reference.collection('labAttachments').doc('$i'), {
+          'name': attachment.name,
+          'bytes': Blob(attachment.bytes!),
+        });
+      }
+    }
+    await batch.commit();
   }
 }

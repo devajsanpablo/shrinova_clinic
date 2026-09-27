@@ -115,6 +115,21 @@ void main() {
           '  123 Main Street, Manila  ',
         );
         await enter(tester, 'Medical history', '  Previous surgery  ');
+        final vaccination = find.widgetWithText(
+          DropdownButtonFormField<String>,
+          'Vaccination history',
+        );
+        await tester.ensureVisible(vaccination);
+        await tester.tap(vaccination);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Yes — vaccines received').last);
+        await tester.pumpAndSettle();
+        await enter(tester, 'Vaccine types *', ' Influenza, Hepatitis B ');
+        await enter(
+          tester,
+          'Laboratory findings',
+          ' Report attached at intake ',
+        );
         await enter(tester, 'Allergies', ' Penicillin, , Peanuts, ');
         await enter(tester, 'Existing conditions', ' Asthma, , Migraine ');
         await enter(
@@ -198,6 +213,10 @@ void main() {
         expect(state.patients.length, count + 1);
         final patient = state.patients.first;
         expect(patient.fullName, 'Ana Cruz');
+        expect(patient.id, 'PT-01');
+        expect(patient.vaccinationStatus, 'Yes');
+        expect(patient.vaccines, ['Influenza', 'Hepatitis B']);
+        expect(patient.labs, 'Report attached at intake');
         expect(patient.dateOfBirth, DateTime(2000, 5, 12));
         expect(patient.phone, '+63 917 123 4567');
         expect(patient.address, '123 Main Street, Manila');
@@ -212,6 +231,16 @@ void main() {
           expect(find.byType(TicketFormPage), findsOneWidget);
           expect(find.byType(RegisterPatientPage), findsNothing);
           expect(find.text('Ana Cruz'), findsOneWidget);
+          final doctor = find.widgetWithText(
+            DropdownButtonFormField<String>,
+            'Assigned doctor *',
+          );
+          await tester.ensureVisible(doctor);
+          await tester.tap(doctor);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Dr. Test').last);
+          await tester.pumpAndSettle();
+
           expect(find.widgetWithText(InputChip, 'Dizziness'), findsOneWidget);
           await tester.tap(find.text('Review & send'));
           await tester.pumpAndSettle();

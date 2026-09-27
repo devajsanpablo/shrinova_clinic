@@ -14,12 +14,12 @@ class QueuePreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppStateScope.of(context);
-    final visible = state.tickets
+    final visible = state
+        .todayTicketsForRole(role)
         .where(
           (t) =>
               t.status != TicketStatus.completed &&
-              t.status != TicketStatus.cancelled &&
-              (role == UserRole.staff || t.doctor == 'Dr. Adrian Reyes'),
+              t.status != TicketStatus.cancelled,
         )
         .take(4)
         .toList();

@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'dart:typed_data';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../core/app_state.dart';
+
 import '../../core/theme.dart';
 import '../../models/models.dart';
 import '../../widgets/common.dart';
@@ -7,8 +13,66 @@ import '../../widgets/patient_summary.dart';
 import 'ticket_form_page.dart';
 
 class PatientProfilePage extends StatelessWidget {
-  const PatientProfilePage({super.key, required this.patient});
+  const PatientProfilePage({
+    super.key,
+    required this.patient,
+    this.historyStream,
+  });
   final Patient patient;
+  final Stream<QuerySnapshot<Map<String, dynamic>>>? historyStream;
+  void _openImage(BuildContext context, int index) {
+    final file = patient.labAttachments[index];
+    final image = file.bytes != null
+        ? Future<Uint8List>.value(file.bytes)
+        : AppStateScope.of(context).database.loadLabImage(patient.id, index);
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        child: SizedBox(
+          width: 900,
+          height: 650,
+          child: Column(
+            children: [
+              ListTile(
+                title: Text(file.name),
+                trailing: IconButton(
+                  tooltip: 'Close',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(dialogContext),
+                ),
+              ),
+              Expanded(
+                child: FutureBuilder<Uint8List>(
+                  future: image,
+                  builder: (_, snapshot) {
+                    if (snapshot.hasError) {
+                      return const Center(
+                        child: Text(
+                          'Could not load this image. Close and try again.',
+                        ),
+                      );
+                    }
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    return InteractiveViewer(
+                      maxScale: 6,
+                      child: Image.memory(
+                        snapshot.data!,
+                        errorBuilder: (_, error, stack) =>
+                            const Text('This image cannot be displayed.'),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -66,6 +130,16 @@ class PatientProfilePage extends StatelessWidget {
                           const SizedBox(height: 5),
                           Text(patient.medicalHistory),
                           const SizedBox(height: 15),
+                          const Text('VACCINATION', style: _label),
+                          const SizedBox(height: 6),
+                          Text(
+                            patient.vaccinationStatus == 'Yes'
+                                ? patient.vaccines.join(', ')
+                                : patient.vaccinationStatus == 'No'
+                                ? 'No vaccines reported'
+                                : 'Not recorded',
+                          ),
+                          const SizedBox(height: 15),
                           const Text('EXISTING CONDITIONS', style: _label),
                           const SizedBox(height: 6),
                           Text(
@@ -87,7 +161,26 @@ class PatientProfilePage extends StatelessWidget {
                     SectionCard(
                       title: 'Laboratory findings',
                       icon: Icons.science_outlined,
-                      child: Text(patient.labs),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(patient.labs),
+                          for (
+                            var i = 0;
+                            i < patient.labAttachments.length;
+                            i++
+                          )
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.image_outlined),
+                              title: Text(patient.labAttachments[i].name),
+                              subtitle: const Text(
+                                'Tap to view laboratory result',
+                              ),
+                              onTap: () => _openImage(context, i),
+                            ),
+                        ],
+                      ),
                     ),
                   ];
                   return c.maxWidth > 780
@@ -118,59 +211,94 @@ class PatientProfilePage extends StatelessWidget {
               SectionCard(
                 title: 'Consultation history',
                 icon: Icons.history_rounded,
-                child: patient.consultations.isEmpty
-                    ? const EmptyState(
+                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream:
+                      historyStream ??
+                      FirebaseFirestore.instance
+                          .collection('patients')
+                          .doc(patient.id)
+                          .collection('checkupHistory')
+                          .orderBy('recordedAt', descending: true)
+                          .snapshots(),
+                  builder: (context, snapshot) {
+                    final visits =
+                        snapshot.data?.docs.map((doc) {
+                          final map = Map<String, dynamic>.from(
+                            doc.data()['consultation'] as Map,
+                          );
+                          return Consultation(
+                            date: DateTime.parse(map['date'] as String),
+                            doctor: map['doctor'] as String,
+                            complaint: map['complaint'] as String,
+                            diagnosis: map['diagnosis'] as String,
+                            treatment: map['treatment'] as String,
+                            prescription: map['prescription'] as String,
+                          );
+                        }).toList() ??
+                        patient.consultations;
+                    if (snapshot.hasError) {
+                      return const Text('Unable to load consultation history.');
+                    }
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        visits.isEmpty) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (visits.isEmpty) {
+                      return const EmptyState(
                         title: 'No previous visits',
                         message: 'Completed consultations will appear here.',
-                      )
-                    : Column(
-                        children: patient.consultations
-                            .map(
-                              (v) => Container(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  color: AppColors.canvas,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      width: 10,
-                                      height: 10,
-                                      margin: const EdgeInsets.only(top: 5),
-                                      decoration: const BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: AppColors.primary,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            '${shortDate(v.date)} • ${v.doctor}',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              color: AppColors.ink,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 5),
-                                          Text(
-                                            '${v.complaint}\nDiagnosis: ${v.diagnosis}\nTreatment: ${v.treatment}\nPrescription: ${v.prescription}',
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                      );
+                    }
+                    return Column(
+                      children: visits
+                          .map(
+                            (v) => Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: AppColors.canvas,
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                            )
-                            .toList(),
-                      ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 10,
+                                    height: 10,
+                                    margin: const EdgeInsets.only(top: 5),
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${shortDate(v.date)} • ${v.doctor}',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.ink,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          '${v.complaint}\nDiagnosis: ${v.diagnosis}\nTreatment: ${v.treatment}\nPrescription: ${v.prescription}',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    );
+                  },
+                ),
               ),
             ],
           ),

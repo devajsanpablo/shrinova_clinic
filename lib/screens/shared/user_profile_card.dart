@@ -72,57 +72,81 @@ class _UserProfileCardState extends State<UserProfileCard> {
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: _reload,
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(Icons.replay),
                 label: const Text('Try again'),
               ),
             ],
           );
         }
         final doctor = widget.role == UserRole.doctor;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+            final stackHeader = constraints.maxWidth < 360 * textScale;
+            final twoColumns = constraints.maxWidth >= 640 * textScale;
+            final identity = Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                PatientAvatar(initials: profile.initials, radius: 31),
-                const SizedBox(width: 15),
-                Expanded(
-                  child: Column(
+                Text(
+                  profile.name.isEmpty ? 'Name not provided' : profile.name,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                Text(doctor ? 'Doctor' : 'Clinic Staff'),
+              ],
+            );
+            final avatar = PatientAvatar(
+              initials: profile.initials,
+              radius: 31,
+            );
+            final details = [
+              _detail('Email', profile.email),
+              _detail('Phone', profile.phone),
+              if (doctor) ...[
+                _detail('Specialty', profile.specialty),
+                _detail('License number', profile.licenseNumber),
+              ] else
+                _detail('Staff ID', profile.staffId),
+            ];
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (stackHeader)
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [avatar, const SizedBox(height: 12), identity],
+                  )
+                else
+                  Row(
                     children: [
-                      Text(
-                        profile.name.isEmpty
-                            ? 'Name not provided'
-                            : profile.name,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      Text(doctor ? 'Doctor' : 'Clinic Staff'),
+                      avatar,
+                      const SizedBox(width: 15),
+                      Expanded(child: identity),
                     ],
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Refresh profile',
-                  onPressed: _reload,
-                  icon: const Icon(Icons.refresh),
+                const SizedBox(height: 18),
+                Wrap(
+                  spacing: 24,
+                  runSpacing: 10,
+                  children: [
+                    for (final detail in details)
+                      SizedBox(
+                        width: twoColumns
+                            ? (constraints.maxWidth - 24) / 2
+                            : constraints.maxWidth,
+                        child: detail,
+                      ),
+                  ],
                 ),
               ],
-            ),
-            const SizedBox(height: 18),
-            _detail('Email', profile.email),
-            _detail('Phone', profile.phone),
-            if (doctor) ...[
-              _detail('Specialty', profile.specialty),
-              _detail('License number', profile.licenseNumber),
-            ] else
-              _detail('Staff ID', profile.staffId),
-          ],
+            );
+          },
         );
       },
     ),
   );
 
-  Widget _detail(String label, String value) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
-    child: Text('$label: ${value.isEmpty ? 'Not provided' : value}'),
-  );
+  Widget _detail(String label, String value) =>
+      Text('$label: ${value.isEmpty ? 'Not provided' : value}');
 }

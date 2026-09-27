@@ -57,9 +57,66 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Angela Ramos'), findsNothing);
+      expect(find.byTooltip('Refresh profile'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('profile adapts to available width and enlarged text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final width in [280.0, 500.0, 900.0]) {
+      for (final scale in [1.0, 2.0]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(
+                    width: width,
+                    child: MediaQuery(
+                      data: MediaQueryData(
+                        textScaler: TextScaler.linear(scale),
+                      ),
+                      child: UserProfileCard(
+                        role: UserRole.doctor,
+                        loadProfile: (_) async => ClinicProfile.fromMap('uid', {
+                          'firstName': 'Maria Alexandra',
+                          'lastName': 'Santos Rodriguez',
+                          'email': 'maria.alexandra.santos@clinic.example.com',
+                          'contact': '09123456789',
+                          'specialization': 'Family and Community Medicine',
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        final email = tester.getRect(
+          find.text('Email: maria.alexandra.santos@clinic.example.com'),
+        );
+        final phone = tester.getRect(find.text('Phone: 09123456789'));
+        if (width == 900 && scale == 1) {
+          expect(phone.top, email.top);
+          expect(phone.left, greaterThan(email.right));
+        } else {
+          expect(phone.top, greaterThanOrEqualTo(email.bottom));
+        }
+      }
+    }
+  });
 
   testWidgets(
     'failed profile load can be retried and handles missing profile',
